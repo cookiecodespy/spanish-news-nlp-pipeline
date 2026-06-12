@@ -4,10 +4,10 @@ A small, **fully reproducible** Spanish-language NLP pipeline: collect news head
 from public RSS feeds, clean and deduplicate them, build a stratified dataset, train
 baseline classifiers and report honest metrics.
 
-> **Why this exists** — built in the open as a compact evidence piece for my application
-> to CENIA's **LatamGPT** internship: it mirrors the day-to-day discipline of dataset
-> work for LLM projects — collection, weak supervision, cleaning, leakage-safe splits,
-> baselines and metrics — at a size anyone can run on a laptop in under a minute.
+> **Why this exists** — most of my work is agent systems on top of LLMs; this repo is
+> me practicing the layer underneath: the dataset discipline that Spanish-language LLM
+> work actually runs on — collection, weak supervision, cleaning, leakage-safe splits,
+> baselines and honest metrics — at a size anyone can run on a laptop in under a minute.
 
 ## Pipeline
 
