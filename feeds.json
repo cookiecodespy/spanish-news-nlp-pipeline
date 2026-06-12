@@ -1,0 +1,30 @@
+{
+  "language": "es-419",
+  "country": "CL",
+  "feeds": [
+    {
+      "label": "nacional",
+      "url": "https://news.google.com/rss/headlines/section/topic/NATION?hl=es-419&gl=CL&ceid=CL:es-419"
+    },
+    {
+      "label": "economia",
+      "url": "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=es-419&gl=CL&ceid=CL:es-419"
+    },
+    {
+      "label": "tecnologia",
+      "url": "https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=es-419&gl=CL&ceid=CL:es-419"
+    },
+    {
+      "label": "deportes",
+      "url": "https://news.google.com/rss/headlines/section/topic/SPORTS?hl=es-419&gl=CL&ceid=CL:es-419"
+    },
+    {
+      "label": "salud",
+      "url": "https://news.google.com/rss/headlines/section/topic/HEALTH?hl=es-419&gl=CL&ceid=CL:es-419"
+    },
+    {
+      "label": "ciencia",
+      "url": "https://news.google.com/rss/headlines/section/topic/SCIENCE?hl=es-419&gl=CL&ceid=CL:es-419"
+    }
+  ]
+}

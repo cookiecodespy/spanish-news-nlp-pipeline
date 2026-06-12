@@ -1,0 +1,201 @@
+{
+  "n_test": 87,
+  "labels": [
+    "ciencia",
+    "deportes",
+    "economia",
+    "nacional",
+    "salud",
+    "tecnologia"
+  ],
+  "models": {
+    "majority": {
+      "accuracy": 0.1954,
+      "precision_macro": 0.0326,
+      "recall_macro": 0.1667,
+      "f1_macro": 0.0545,
+      "per_class": {
+        "ciencia": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 13
+        },
+        "deportes": {
+          "precision": 0.1954,
+          "recall": 1.0,
+          "f1": 0.3269,
+          "support": 17
+        },
+        "economia": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 5
+        },
+        "nacional": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 18
+        },
+        "salud": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 18
+        },
+        "tecnologia": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 16
+        }
+      },
+      "confusion_matrix": [
+        [
+          0,
+          13,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          17,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          5,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          18,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          18,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          16,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    "tfidf_logreg": {
+      "accuracy": 0.5172,
+      "precision_macro": 0.4175,
+      "recall_macro": 0.4527,
+      "f1_macro": 0.4317,
+      "per_class": {
+        "ciencia": {
+          "precision": 0.5,
+          "recall": 0.5385,
+          "f1": 0.5185,
+          "support": 13
+        },
+        "deportes": {
+          "precision": 0.7368,
+          "recall": 0.8235,
+          "f1": 0.7778,
+          "support": 17
+        },
+        "economia": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1": 0.0,
+          "support": 5
+        },
+        "nacional": {
+          "precision": 0.4737,
+          "recall": 0.5,
+          "f1": 0.4865,
+          "support": 18
+        },
+        "salud": {
+          "precision": 0.5217,
+          "recall": 0.6667,
+          "f1": 0.5854,
+          "support": 18
+        },
+        "tecnologia": {
+          "precision": 0.2727,
+          "recall": 0.1875,
+          "f1": 0.2222,
+          "support": 16
+        }
+      },
+      "confusion_matrix": [
+        [
+          7,
+          2,
+          0,
+          0,
+          1,
+          3
+        ],
+        [
+          0,
+          14,
+          0,
+          2,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          3,
+          0,
+          2
+        ],
+        [
+          1,
+          1,
+          0,
+          9,
+          5,
+          2
+        ],
+        [
+          3,
+          0,
+          0,
+          2,
+          12,
+          1
+        ],
+        [
+          3,
+          2,
+          1,
+          3,
+          4,
+          3
+        ]
+      ]
+    }
+  }
+}
