@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import research_pipeline.assurance as assurance
 from research_pipeline.assurance import doctor, status, verify_live
 from research_pipeline.discovery_state import connect_state, record_failure, start_run
 
@@ -47,8 +48,23 @@ def test_doctor_passes_with_valid_registry_and_uncreated_state(tmp_path):
         "registry",
         "state",
         "entrypoints",
+        "normalizer",
     }
     assert all(item["status"] == "PASS" for item in payload["checks"])
+
+
+def test_doctor_reports_wrong_normalizer_version(monkeypatch, tmp_path):
+    monkeypatch.setattr(assurance, "package_version", lambda _: "9.9.9")
+
+    payload = doctor(
+        registry_path=REGISTRY_PATH,
+        state_path=tmp_path / "state" / "discovery.sqlite3",
+    )
+
+    normalizer = next(item for item in payload["checks"] if item["name"] == "normalizer")
+    assert payload["ok"] is False
+    assert normalizer["status"] == "FAIL"
+    assert "expected 2.2.0" in normalizer["detail"]
 
 
 def test_doctor_reports_invalid_registry_without_network(tmp_path):
