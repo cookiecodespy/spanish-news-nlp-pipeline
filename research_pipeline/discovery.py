@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
@@ -26,12 +27,27 @@ class _LinkParser(HTMLParser):
                 break
 
 
+_NON_NAVIGATION_HREF = re.compile(
+    r"^(?:javascript|vbscript|data|mailto|tel)\s*(?::|\()",
+    flags=re.IGNORECASE,
+)
+
+
 def normalize_url(base_url: str, href: str) -> str | None:
-    """Resolve a link, strip fragments, and return a stable HTTP(S) URL."""
-    if not isinstance(href, str) or not href.strip():
+    """Resolve a navigational link, strip fragments, and return a stable HTTP(S) URL.
+
+    Reject script/data/contact pseudo-links *before* ``urljoin``. Some real pages emit
+    malformed values such as ``javascript(0):void``; treating those as ordinary relative
+    paths would turn them into apparently valid HTTPS candidates under the source host.
+    """
+    if not isinstance(href, str):
         return None
 
-    joined = urljoin(base_url, href.strip())
+    raw_href = href.strip()
+    if not raw_href or _NON_NAVIGATION_HREF.match(raw_href):
+        return None
+
+    joined = urljoin(base_url, raw_href)
     parsed = urlsplit(joined)
     scheme = parsed.scheme.lower()
 
