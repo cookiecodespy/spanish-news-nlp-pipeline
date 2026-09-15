@@ -52,8 +52,8 @@ Development is tracked publicly in GitHub issues and small feature branches.
 
 ## V2 current commands
 
-V2 is still under active development, but the source-trust, discovery, local-state and
-operator-assurance layers are executable.
+V2 is still under active development, but the source-trust, discovery, local-state,
+operator-assurance and first exact-byte ingestion layers are executable.
 
 Validate the committed official-source registry entirely offline:
 
@@ -71,11 +71,10 @@ Live discovery checks `robots.txt`, uses bounded timeouts and response sizes, va
 every redirect, stays inside the source allowlist, and prints candidate URLs as JSON.
 It does **not** recursively crawl or download the discovered documents.
 
-By default, the command keeps a local SQLite ledger at
-`.state/discovery.sqlite3`. That file is gitignored. Repeated runs surface top-level
-`new_count` and `known_count` values, so an operator can see what changed without
-opening SQLite or reading internal logs. A custom local state path can be supplied with
-`--state PATH`.
+By default, discovery keeps a local SQLite ledger at `.state/discovery.sqlite3`. That
+file is gitignored. Repeated runs surface top-level `new_count` and `known_count` values,
+so an operator can see what changed without opening SQLite or reading internal logs. A
+custom local state path can be supplied with `--state PATH`.
 
 Run deterministic local readiness checks without touching the network:
 
@@ -100,6 +99,34 @@ the same robots, redirect, timeout and response-size policy as discovery and rep
 `PASS`, `FAIL` or `BLOCKED` per source. It is a manual operator check, not a
 network-dependent normal CI test, and it does not mutate discovery state or ingest
 article bodies.
+
+After discovery has populated the local candidate ledger, ingest a bounded number of
+previously discovered HTML documents:
+
+```bash
+python -m research_pipeline.ingestion --source anthropic-engineering --limit 1
+```
+
+Phase 2A revalidates the current allowlist and the candidate's own `robots.txt` rules,
+fetches only HTML under the same bounded network policy, preserves the **exact response
+bytes** under the gitignored `.state/objects/sha256/` content-addressed store, computes
+SHA-256, and records provenance in the same local SQLite state. The default limit is 1
+so a first run cannot unexpectedly ingest an entire source.
+
+The ingestion result is classified as:
+
+- `NEW` — no earlier successful raw observation exists for that source URL;
+- `UNCHANGED` — the exact fetched HTML bytes have the same SHA-256 as the prior success;
+- `CHANGED` — the exact fetched HTML bytes have a different SHA-256.
+
+**Important:** `CHANGED` is a raw-byte transport fact, not a semantic conclusion.
+Dynamic timestamps, scripts or page chrome can change raw HTML while the research content
+stays equivalent. A later normalization phase will create a more stable content artifact
+and normalized hash; semantic change detection belongs later still.
+
+`requested_url` and redirect-resolved `final_url` are stored separately. Phase 2A does
+not call the final URL “canonical”; document canonical metadata will be extracted in a
+later normalization/metadata phase.
 
 Available source IDs currently live in [`sources/registry.json`](sources/registry.json).
 All automated tests remain offline.
@@ -181,10 +208,10 @@ tests/                      offline tests for v1 and v2 foundations
 data/                       v1 snapshot + data documentation
 outputs/metrics.json        committed v1 example results
 
-research_pipeline/          v2 trust, discovery and future ingestion code
+research_pipeline/          v2 trust, discovery and ingestion code
 docs/                       v2 project policies and architecture notes
 sources/registry.json       v2 allowlisted official-source registry
-.state/                     local discovery ledger (gitignored)
+.state/                     local SQLite state + content-addressed objects (gitignored)
 ```
 
 ## V1 limitations

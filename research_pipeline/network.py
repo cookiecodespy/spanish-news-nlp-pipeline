@@ -1,4 +1,4 @@
-"""Conservative HTTP helpers for live v2 source discovery.
+"""Conservative HTTP helpers for live v2 source discovery and ingestion.
 
 The network layer deliberately does not crawl. It fetches one already-authorized URL at
 a time, follows redirects manually, validates every hop, and enforces hard response-size
@@ -35,6 +35,7 @@ class NetworkPolicyError(RuntimeError):
 class FetchedText:
     url: str
     text: str
+    body: bytes
     content_type: str
     status_code: int
     bytes_read: int
@@ -148,7 +149,12 @@ def fetch_html(
     request_get: Callable = requests.get,
     max_bytes: int = MAX_HTML_BYTES,
 ) -> FetchedText:
-    """Fetch one authorized HTML URL while validating every redirect hop."""
+    """Fetch one authorized HTML URL while validating every redirect hop.
+
+    The returned ``body`` is the exact bounded response payload. ``text`` is a decoded
+    convenience view of those same bytes. Keeping both lets later ingestion hash and
+    preserve transport evidence without re-encoding decoded text.
+    """
     current = normalize_url(url, url)
     if current is None or not is_allowed_fetch_url(source, current):
         raise NetworkPolicyError(f"URL is outside source fetch policy: {url}")
@@ -195,6 +201,7 @@ def fetch_html(
         return FetchedText(
             url=current,
             text=text,
+            body=payload,
             content_type=content_type,
             status_code=response.status_code,
             bytes_read=len(payload),
