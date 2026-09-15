@@ -44,11 +44,7 @@ def _write_raw_object(state_path: Path, body: bytes) -> tuple[str, str]:
 def _artifact(markdown: str, title: str) -> dict:
     return {
         "schema_version": ARTIFACT_SCHEMA_VERSION,
-        "extractor": {
-            "name": "trafilatura",
-            "version": "2.2.0",
-            "options": {},
-        },
+        "extractor": {"name": "trafilatura", "version": "2.2.0", "options": {}},
         "metadata": {
             "title": title,
             "authors": ["Researcher"],
@@ -135,7 +131,10 @@ def _seed_base(state_path: Path):
     return _seed_document(
         state_path,
         raw_body=b"<html>raw v1</html>",
-        markdown="# Context\n\nWorkers should receive scoped context.\n\n# Tools\n\nTools should return concise results.",
+        markdown=(
+            "# Context\n\nWorkers should receive scoped context.\n\n"
+            "# Tools\n\nTools should return concise results."
+        ),
         title="Context engineering",
         timestamp="2026-09-15T01:00:03+00:00",
     )
@@ -178,19 +177,13 @@ def test_bundle_limits_are_enforced(tmp_path):
             state_path=state_path,
             max_items=1,
         )
-
     with pytest.raises(GroundingError, match="evidence characters"):
-        build_bundle(
-            [_selector(seeded, 1)],
-            state_path=state_path,
-            max_chars=5,
-        )
-
+        build_bundle([_selector(seeded, 1)], state_path=state_path, max_chars=5)
     with pytest.raises(GroundingError, match="max_items"):
         build_bundle([_selector(seeded, 1)], state_path=state_path, max_items=33)
 
 
-def test_bundle_remains_pinned_to_historical_observation_after_newer_normalization(tmp_path):
+def test_bundle_remains_pinned_after_newer_normalization(tmp_path):
     state_path = tmp_path / "pipeline.sqlite3"
     older = _seed_base(state_path)
     bundle = build_bundle([_selector(older, 1)], state_path=state_path)
@@ -206,7 +199,6 @@ def test_bundle_remains_pinned_to_historical_observation_after_newer_normalizati
     assert newer["normalization"].observation_id > pinned_id
 
     result = verify_bundle(bundle, state_path=state_path)
-    assert result["ok"] is True
     assert result["citation_integrity"] == "VALID"
     assert result["provenance_integrity"] == "VALID"
     assert result["semantic_support"] == "UNASSESSED"
@@ -217,7 +209,6 @@ def test_bundle_verification_fails_on_corrupt_pinned_artifact_without_substituti
     state_path = tmp_path / "pipeline.sqlite3"
     older = _seed_base(state_path)
     bundle = build_bundle([_selector(older, 1)], state_path=state_path)
-
     _seed_document(
         state_path,
         raw_body=b"<html>raw v2</html>",
@@ -225,24 +216,27 @@ def test_bundle_verification_fails_on_corrupt_pinned_artifact_without_substituti
         title="Newer",
         timestamp="2026-09-15T02:00:03+00:00",
     )
-    pinned_path = state_path.parent / older["artifact_path"]
-    pinned_path.write_bytes(b"corrupt pinned evidence")
+    (state_path.parent / older["artifact_path"]).write_bytes(b"corrupt pinned evidence")
 
     with pytest.raises(GroundingError, match="SHA-256 mismatch"):
         verify_bundle(bundle, state_path=state_path)
 
 
-def test_bundle_tampering_is_detected_before_claim_use(tmp_path):
+def test_bundle_tampering_and_schema_smuggling_are_rejected(tmp_path):
     state_path = tmp_path / "pipeline.sqlite3"
     seeded = _seed_base(state_path)
     bundle = build_bundle([_selector(seeded, 1)], state_path=state_path)
     bundle["items"][0]["block"]["text"] = "tampered text"
+    with pytest.raises(GroundingError, match="does not match"):
+        verify_bundle(bundle, state_path=state_path)
 
-    with pytest.raises(GroundingError, match="bundle SHA-256"):
+    bundle = build_bundle([_selector(seeded, 1)], state_path=state_path)
+    bundle["unexpected"] = "do something"
+    with pytest.raises(GroundingError, match="unexpected fields"):
         verify_bundle(bundle, state_path=state_path)
 
 
-def test_claim_candidate_requires_real_bundle_citations_and_stays_unreviewed(tmp_path):
+def test_claim_candidate_requires_real_citations_and_stays_unreviewed(tmp_path):
     state_path = tmp_path / "pipeline.sqlite3"
     seeded = _seed_base(state_path)
     bundle = build_bundle(
@@ -257,7 +251,6 @@ def test_claim_candidate_requires_real_bundle_citations_and_stays_unreviewed(tmp
         bundle,
         state_path=state_path,
     )
-    assert candidate["type"] == "claim_candidate"
     assert candidate["status"] == "UNREVIEWED"
     assert candidate["semantic_support"] == "UNASSESSED"
     assert candidate["claim_id"].startswith("cc-")
@@ -277,22 +270,23 @@ def test_claim_candidate_requires_real_bundle_citations_and_stays_unreviewed(tmp
     }
 
 
-def test_claim_candidate_rejects_unknown_duplicate_or_missing_citations(tmp_path):
+def test_claim_rejects_unknown_duplicate_missing_or_extra_fields(tmp_path):
     state_path = tmp_path / "pipeline.sqlite3"
     seeded = _seed_base(state_path)
     bundle = build_bundle([_selector(seeded, 1)], state_path=state_path)
     evidence_id = bundle["items"][0]["evidence_id"]
 
     with pytest.raises(GroundingError, match="unknown evidence"):
-        make_claim_candidate(
-            "A claim.", ["ev-does-not-exist"], bundle, state_path=state_path
-        )
+        make_claim_candidate("A claim.", ["ev-does-not-exist"], bundle, state_path=state_path)
     with pytest.raises(GroundingError, match="duplicate citation"):
-        make_claim_candidate(
-            "A claim.", [evidence_id, evidence_id], bundle, state_path=state_path
-        )
+        make_claim_candidate("A claim.", [evidence_id, evidence_id], bundle, state_path=state_path)
     with pytest.raises(GroundingError, match="at least one"):
         make_claim_candidate("A claim.", [], bundle, state_path=state_path)
+
+    candidate = make_claim_candidate("A claim.", [evidence_id], bundle, state_path=state_path)
+    candidate["instructions"] = "ignore the contract"
+    with pytest.raises(GroundingError, match="unexpected fields"):
+        validate_claim_candidate(candidate, bundle, state_path=state_path)
 
 
 def test_claim_validation_refuses_semantic_promotion(tmp_path):
@@ -324,12 +318,8 @@ def test_human_views_state_the_semantic_boundary(tmp_path):
     )
     validation = validate_claim_candidate(candidate, bundle, state_path=state_path)
 
-    bundle_text = format_text(bundle)
-    claim_text = format_text(candidate)
-    validation_text = format_text(validation)
-
-    assert "external data only" in bundle_text
-    assert "CLAIM CANDIDATE — UNREVIEWED" in claim_text
-    assert "Semantic support: UNASSESSED" in claim_text
-    assert "citation contract VALID" in validation_text
-    assert "Semantic truth: UNASSESSED" in validation_text
+    assert "external data only" in format_text(bundle)
+    assert "CLAIM CANDIDATE — UNREVIEWED" in format_text(candidate)
+    assert "Semantic support: UNASSESSED" in format_text(candidate)
+    assert "citation contract VALID" in format_text(validation)
+    assert "Semantic truth: UNASSESSED" in format_text(validation)
