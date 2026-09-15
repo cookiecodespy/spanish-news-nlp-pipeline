@@ -52,8 +52,8 @@ Development is tracked publicly in GitHub issues and small feature branches.
 
 ## V2 current commands
 
-V2 is still under active development, but the source-trust and first discovery layers
-are executable.
+V2 is still under active development, but the source-trust, discovery, local-state and
+operator-assurance layers are executable.
 
 Validate the committed official-source registry entirely offline:
 
@@ -76,6 +76,30 @@ By default, the command keeps a local SQLite ledger at
 `new_count` and `known_count` values, so an operator can see what changed without
 opening SQLite or reading internal logs. A custom local state path can be supplied with
 `--state PATH`.
+
+Run deterministic local readiness checks without touching the network:
+
+```bash
+python -m research_pipeline.assurance doctor
+```
+
+See the latest discovery outcome for every enabled source without opening SQLite:
+
+```bash
+python -m research_pipeline.assurance status
+```
+
+Explicitly smoke-test one official source against the real network:
+
+```bash
+python -m research_pipeline.assurance verify-live --source anthropic-engineering
+```
+
+Or omit `--source` to verify all enabled sources sequentially. Live verification reuses
+the same robots, redirect, timeout and response-size policy as discovery and reports
+`PASS`, `FAIL` or `BLOCKED` per source. It is a manual operator check, not a
+network-dependent normal CI test, and it does not mutate discovery state or ingest
+article bodies.
 
 Available source IDs currently live in [`sources/registry.json`](sources/registry.json).
 All automated tests remain offline.
