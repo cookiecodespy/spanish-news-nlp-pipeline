@@ -8,6 +8,7 @@ from research_pipeline.live_discovery import (
     discover_entrypoint_live,
     discover_source_live,
     robots_allows,
+    robots_crawl_delay,
 )
 
 
@@ -43,6 +44,13 @@ def test_robots_rules_can_block_configured_entrypoint():
         "User-agent: *\nDisallow: /research/\n",
         "https://openai.com/research/",
     )
+
+
+def test_robots_crawl_delay_is_read_for_this_agent():
+    assert robots_crawl_delay(
+        "User-agent: *\nAllow: /\nCrawl-delay: 3\n",
+        "https://openai.com/research/",
+    ) == 3.0
 
 
 def test_live_discovery_stops_before_html_when_robots_disallows():
@@ -114,13 +122,13 @@ def test_redirected_entrypoint_resolves_relative_links_against_final_url():
     assert result.candidates == ["https://openai.com/index/research-home/child/"]
 
 
-def test_source_discovery_fetches_robots_once_for_shared_host():
+def test_source_discovery_fetches_robots_once_and_honors_crawl_delay():
     seen = []
     sleeps = []
     fake_get = fake_get_sequence(
         [
             FakeResponse(
-                body=b"User-agent: *\nAllow: /\n",
+                body=b"User-agent: *\nAllow: /\nCrawl-delay: 3\n",
                 headers={"Content-Type": "text/plain"},
             ),
             FakeResponse(
@@ -146,4 +154,4 @@ def test_source_discovery_fetches_robots_once_for_shared_host():
     assert len(results) == 2
     assert seen.count("https://deepmind.google/robots.txt") == 1
     assert len(seen) == 3
-    assert sleeps == [0.25, 0.25]
+    assert sleeps == [3.0, 3.0]
