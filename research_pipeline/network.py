@@ -81,6 +81,12 @@ def _content_type(response) -> str:
     return raw.split(";", 1)[0].strip().lower()
 
 
+def _close(response) -> None:
+    close = getattr(response, "close", None)
+    if callable(close):
+        close()
+
+
 def _read_limited(response, max_bytes: int) -> bytes:
     content_length = response.headers.get("Content-Length")
     if content_length:
@@ -120,16 +126,19 @@ def _request(
     *,
     request_get: Callable = requests.get,
 ):
-    return request_get(
-        url,
-        headers={
-            "User-Agent": USER_AGENT,
-            "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.1",
-        },
-        timeout=TIMEOUT,
-        stream=True,
-        allow_redirects=False,
-    )
+    try:
+        return request_get(
+            url,
+            headers={
+                "User-Agent": USER_AGENT,
+                "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.1",
+            },
+            timeout=TIMEOUT,
+            stream=True,
+            allow_redirects=False,
+        )
+    except requests.RequestException as exc:
+        raise NetworkPolicyError(f"network request failed for {url}: {exc}") from exc
 
 
 def fetch_html(
@@ -149,33 +158,43 @@ def fetch_html(
 
         if response.status_code in REDIRECT_STATUSES:
             if redirect_count >= MAX_REDIRECTS:
+                _close(response)
                 raise NetworkPolicyError("too many redirects")
             location = response.headers.get("Location")
             if not location:
+                _close(response)
                 raise NetworkPolicyError("redirect response missing Location header")
             target = normalize_url(current, urljoin(current, location))
             if target is None or not is_allowed_fetch_url(source, target):
+                _close(response)
                 raise NetworkPolicyError(
                     f"redirect target is outside source fetch policy: {location}"
                 )
+            _close(response)
             current = target
             continue
 
         if not 200 <= response.status_code < 300:
-            raise NetworkPolicyError(
-                f"unexpected HTTP status {response.status_code} for {current}"
-            )
+            status = response.status_code
+            _close(response)
+            raise NetworkPolicyError(f"unexpected HTTP status {status} for {current}")
 
         content_type = _content_type(response)
         if content_type not in HTML_CONTENT_TYPES:
+            _close(response)
             raise NetworkPolicyError(
                 f"unexpected content type for discovery page: {content_type or '<missing>'}"
             )
 
-        payload = _read_limited(response, max_bytes)
+        try:
+            payload = _read_limited(response, max_bytes)
+            text = _decode(response, payload)
+        finally:
+            _close(response)
+
         return FetchedText(
             url=current,
-            text=_decode(response, payload),
+            text=text,
             content_type=content_type,
             status_code=response.status_code,
             bytes_read=len(payload),
@@ -208,32 +227,42 @@ def fetch_robots_txt(
 
         if response.status_code in REDIRECT_STATUSES:
             if redirect_count >= MAX_REDIRECTS:
+                _close(response)
                 raise NetworkPolicyError("too many robots.txt redirects")
             location = response.headers.get("Location")
             if not location:
+                _close(response)
                 raise NetworkPolicyError("robots.txt redirect missing Location header")
             target = normalize_url(current, urljoin(current, location))
             if target is None or not _robots_hop_allowed(source, target):
+                _close(response)
                 raise NetworkPolicyError(
                     f"robots.txt redirect target is outside policy: {location}"
                 )
+            _close(response)
             current = target
             continue
 
         if response.status_code in {404, 410}:
+            _close(response)
             return None
         if not 200 <= response.status_code < 300:
-            raise NetworkPolicyError(
-                f"unexpected robots.txt HTTP status {response.status_code}"
-            )
+            status = response.status_code
+            _close(response)
+            raise NetworkPolicyError(f"unexpected robots.txt HTTP status {status}")
 
         content_type = _content_type(response)
         if content_type and not content_type.startswith("text/"):
+            _close(response)
             raise NetworkPolicyError(
                 f"unexpected robots.txt content type: {content_type}"
             )
 
-        payload = _read_limited(response, max_bytes)
-        return _decode(response, payload)
+        try:
+            payload = _read_limited(response, max_bytes)
+            text = _decode(response, payload)
+        finally:
+            _close(response)
+        return text
 
     raise NetworkPolicyError("robots.txt redirect loop exhausted")
