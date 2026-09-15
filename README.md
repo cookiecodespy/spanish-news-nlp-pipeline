@@ -53,7 +53,8 @@ Development is tracked publicly in GitHub issues and small feature branches.
 ## V2 current commands
 
 V2 is still under active development, but the source-trust, discovery, local-state,
-operator-assurance and first exact-byte ingestion layers are executable.
+operator-assurance, exact-byte ingestion and deterministic HTML-normalization layers are
+executable.
 
 Validate the committed official-source registry entirely offline:
 
@@ -82,11 +83,19 @@ Run deterministic local readiness checks without touching the network:
 python -m research_pipeline.assurance doctor
 ```
 
-See the latest discovery outcome for every enabled source without opening SQLite:
+`doctor` validates the registry, local-state readiness, configured entrypoints and the
+exact pinned normalization extractor version (`trafilatura==2.2.0`).
+
+See the latest discovery, ingestion and normalization outcome for every enabled source
+without opening SQLite:
 
 ```bash
 python -m research_pipeline.assurance status
 ```
+
+The original top-level discovery fields remain stable for compatibility. Each source now
+also exposes concise `ingestion` and `normalization` stage summaries, including the latest
+classification, evidence hash, timestamp and error where applicable.
 
 Explicitly smoke-test one official source against the real network:
 
@@ -119,17 +128,49 @@ The ingestion result is classified as:
 - `UNCHANGED` — the exact fetched HTML bytes have the same SHA-256 as the prior success;
 - `CHANGED` — the exact fetched HTML bytes have a different SHA-256.
 
-**Important:** `CHANGED` is a raw-byte transport fact, not a semantic conclusion.
-Dynamic timestamps, scripts or page chrome can change raw HTML while the research content
-stays equivalent. A later normalization phase will create a more stable content artifact
-and normalized hash; semantic change detection belongs later still.
+**Important:** raw `CHANGED` is a transport fact, not a semantic conclusion. Dynamic
+timestamps, scripts or page chrome can change raw HTML while the research content stays
+equivalent.
 
-`requested_url` and redirect-resolved `final_url` are stored separately. Phase 2A does
-not call the final URL “canonical”; document canonical metadata will be extracted in a
-later normalization/metadata phase.
+`requested_url` and redirect-resolved `final_url` are stored separately. The final
+transport URL is not mislabeled as document-canonical metadata.
+
+Normalize the latest successful locally stored HTML without making another network
+request:
+
+```bash
+python -m research_pipeline.normalization --source anthropic-engineering --limit 1
+```
+
+Phase 3A first re-reads the local raw object and verifies both its recorded byte count and
+raw SHA-256. It then uses the exactly pinned `trafilatura==2.2.0` extractor to produce a
+stable structured artifact containing declared metadata, normalized Markdown and ordered
+citation blocks with deterministic block references. Normalized artifact bodies remain
+local and gitignored under `.state/normalized/sha256/`.
+
+The normalized artifact has its **own SHA-256**, separate from the immutable raw-object
+hash. Normalization observations are classified as `NEW`, `UNCHANGED` or `CHANGED` only
+against prior successes for the same URL **and the same extractor version**. Upgrading the
+extractor therefore creates a new normalization baseline instead of pretending every
+article changed.
+
+This separation lets the pipeline represent facts such as:
+
+```text
+raw HTML SHA changed       → raw CHANGED
+normalized artifact same   → normalized UNCHANGED
+```
+
+That means page chrome or scripts changed while the extracted research artifact remained
+stable. Conversely, normalized `CHANGED` means the deterministic extracted artifact
+changed; it is still **not yet a semantic-change judgment**.
+
+Declared metadata such as title, author, dates, language or canonical URL is preserved as
+source data. It does not widen the network allowlist or automatically become trusted
+agent guidance.
 
 Available source IDs currently live in [`sources/registry.json`](sources/registry.json).
-All automated tests remain offline.
+All normal automated tests remain offline and deterministic.
 
 ## V1 pipeline
 
@@ -172,7 +213,7 @@ All commands run from the repo root.
 ## V1 results
 
 Committed snapshot (fetched 2026-06-12 UTC): **360 headlines → 347 unique** after
-normalization and dedup; train 260 / test 87, stratified, seed 42.
+normalization and dedup; train 260 / test 87, stratified, seed=42.
 
 | model | accuracy | precision (macro) | recall (macro) | F1 (macro) |
 |---|---:|---:|---:|---:|
@@ -208,10 +249,10 @@ tests/                      offline tests for v1 and v2 foundations
 data/                       v1 snapshot + data documentation
 outputs/metrics.json        committed v1 example results
 
-research_pipeline/          v2 trust, discovery and ingestion code
+research_pipeline/          v2 trust, discovery, ingestion and normalization code
 docs/                       v2 project policies and architecture notes
 sources/registry.json       v2 allowlisted official-source registry
-.state/                     local SQLite state + content-addressed objects (gitignored)
+.state/                     local SQLite state + raw/normalized objects (gitignored)
 ```
 
 ## V1 limitations
