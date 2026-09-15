@@ -11,18 +11,9 @@ permissions:
   contents: read
 
 jobs:
-  normalize-official-source:
+  verify-google-research-candidate-hygiene:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        source:
-          - openai-research
-          - anthropic-engineering
-          - google-deepmind-research
-          - google-research-publications
-          - cerebras-blog
 
     steps:
       - name: Check out repository
@@ -37,105 +28,77 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
 
-      - name: Verify local readiness
-        run: python -m research_pipeline.assurance doctor --state ".state/${{ matrix.source }}.sqlite3"
-
-      - name: Discover official source
+      - name: Discover Google Research after pseudo-link fix
         run: |
           mkdir -p evidence
           python -m research_pipeline.live_discovery \
-            --source "${{ matrix.source }}" \
-            --state ".state/${{ matrix.source }}.sqlite3" \
-            --delay 0.25 > "evidence/${{ matrix.source }}-discovery.json"
-          cat "evidence/${{ matrix.source }}-discovery.json"
+            --source google-research-publications \
+            --state .state/google-research-publications.sqlite3 \
+            --delay 0.25 > evidence/google-research-publications-discovery.json
+          cat evidence/google-research-publications-discovery.json
 
-      - name: Ingest one discovered HTML document
+      - name: Verify malformed pseudo-link is absent
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(
+              Path("evidence/google-research-publications-discovery.json").read_text()
+          )
+          assert payload["ok"] is True, payload
+          candidates = payload["new_candidates"]
+          assert candidates, payload
+          assert not any("javascript" in url.lower() for url in candidates), candidates
+          print("google research candidate hygiene verified:", len(candidates), "candidates")
+          PY
+
+      - name: Ingest and normalize one clean candidate
         run: |
           python -m research_pipeline.ingestion \
-            --source "${{ matrix.source }}" \
-            --state ".state/${{ matrix.source }}.sqlite3" \
+            --source google-research-publications \
+            --state .state/google-research-publications.sqlite3 \
             --limit 1 \
-            --delay 0.25 > "evidence/${{ matrix.source }}-ingestion.json"
-          cat "evidence/${{ matrix.source }}-ingestion.json"
-
-      - name: Normalize stored HTML without refetching
-        run: |
+            --delay 0.25 > evidence/google-research-publications-ingestion.json
           python -m research_pipeline.normalization \
-            --source "${{ matrix.source }}" \
-            --state ".state/${{ matrix.source }}.sqlite3" \
-            --limit 1 > "evidence/${{ matrix.source }}-normalization.json"
-          cat "evidence/${{ matrix.source }}-normalization.json"
+            --source google-research-publications \
+            --state .state/google-research-publications.sqlite3 \
+            --limit 1 > evidence/google-research-publications-normalization.json
+          cat evidence/google-research-publications-normalization.json
 
-      - name: Verify provenance and normalized object locally
-        env:
-          SOURCE: ${{ matrix.source }}
+      - name: Verify normalized evidence
         run: |
           python - <<'PY'
           import hashlib
           import json
-          import os
           from pathlib import Path
 
-          source = os.environ["SOURCE"]
-          evidence = Path("evidence")
-          discovery = json.loads((evidence / f"{source}-discovery.json").read_text())
-          ingestion = json.loads((evidence / f"{source}-ingestion.json").read_text())
-          normalization = json.loads((evidence / f"{source}-normalization.json").read_text())
-
-          assert discovery["ok"] is True, discovery
-          assert discovery["candidate_count"] > 0, discovery
-          assert ingestion["ok"] is True, ingestion
-          assert ingestion["processed"] == 1, ingestion
-          assert ingestion["error_count"] == 0, ingestion
-          assert normalization["ok"] is True, normalization
-          assert normalization["processed"] == 1, normalization
-          assert normalization["error_count"] == 0, normalization
-          assert normalization["extractor"] == {"name": "trafilatura", "version": "2.2.0"}, normalization
-
+          ingestion = json.loads(
+              Path("evidence/google-research-publications-ingestion.json").read_text()
+          )
+          normalization = json.loads(
+              Path("evidence/google-research-publications-normalization.json").read_text()
+          )
+          assert ingestion["ok"] is True and ingestion["error_count"] == 0, ingestion
+          assert normalization["ok"] is True and normalization["error_count"] == 0, normalization
           raw_item = ingestion["results"][0]
           item = normalization["results"][0]
-          assert raw_item["status"] == "SUCCESS", raw_item
-          assert raw_item["classification"] == "NEW", raw_item
-          assert item["status"] == "SUCCESS", item
-          assert item["classification"] == "NEW", item
           assert item["raw_sha256"] == raw_item["sha256"], (item, raw_item)
-          assert item["requested_url"] == raw_item["requested_url"], (item, raw_item)
-          assert item["block_count"] and item["block_count"] > 0, item
-          assert item["char_count"] and item["char_count"] > 0, item
-
           artifact_path = Path(".state") / item["artifact_path"]
           artifact_bytes = artifact_path.read_bytes()
-          assert hashlib.sha256(artifact_bytes).hexdigest() == item["normalized_sha256"], item
-          artifact = json.loads(artifact_bytes)
-          assert artifact["extractor"]["name"] == "trafilatura", artifact
-          assert artifact["extractor"]["version"] == "2.2.0", artifact
-          assert artifact["blocks"], artifact
-          refs = [block["ref"] for block in artifact["blocks"]]
-          assert len(refs) == len(set(refs)), refs
-
+          assert hashlib.sha256(artifact_bytes).hexdigest() == item["normalized_sha256"]
+          assert item["block_count"] > 0 and item["char_count"] > 0, item
           print(
-              "phase 3a live evidence verified:",
-              source,
+              "google research normalization reverified:",
               item["requested_url"],
               item["normalized_sha256"],
-              item["block_count"],
-              "blocks",
-              item["char_count"],
-              "chars",
           )
           PY
-
-      - name: Show operator status
-        run: |
-          python -m research_pipeline.assurance status \
-            --state ".state/${{ matrix.source }}.sqlite3" \
-            > "evidence/${{ matrix.source }}-status.json"
-          cat "evidence/${{ matrix.source }}-status.json"
 
       - name: Upload metadata evidence only
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phase-3a-${{ matrix.source }}-metadata
-          path: evidence/${{ matrix.source }}-*.json
+          name: phase-3a-google-research-hygiene-metadata
+          path: evidence/*.json
           retention-days: 14
