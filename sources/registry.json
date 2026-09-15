@@ -2,6 +2,10 @@
   "schema_version": 1,
   "policy": "docs/SOURCE_POLICY.md",
   "default": "deny",
+  "discovery_defaults": {
+    "scope": "entrypoint_links_only",
+    "same_domain_only": true
+  },
   "sources": [
     {
       "id": "openai-research",
@@ -16,7 +20,8 @@
         "https://openai.com/research/index/"
       ],
       "allowed_url_prefixes": [
-        "https://openai.com/research/"
+        "https://openai.com/research/",
+        "https://openai.com/index/"
       ],
       "topics": [
         "agents",
