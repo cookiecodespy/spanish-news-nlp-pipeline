@@ -66,8 +66,20 @@ def is_allowed_candidate(source: dict, url: str) -> bool:
     return any(url.startswith(prefix) for prefix in source.get("allowed_url_prefixes", []))
 
 
-def discover_links(registry: dict, source_id: str, entrypoint: str, html: str) -> list[str]:
-    """Extract unique, allowlisted links from one configured source entrypoint."""
+def discover_links(
+    registry: dict,
+    source_id: str,
+    entrypoint: str,
+    html: str,
+    *,
+    base_url: str | None = None,
+) -> list[str]:
+    """Extract unique, allowlisted links from one configured source entrypoint.
+
+    ``entrypoint`` is the authorization origin and must be configured in the registry.
+    ``base_url`` may be supplied after an allowlisted HTTP redirect so relative links are
+    resolved against the page that was actually returned.
+    """
     validate_registry(registry)
     source = _source_by_id(registry, source_id)
 
@@ -76,15 +88,24 @@ def discover_links(registry: dict, source_id: str, entrypoint: str, html: str) -
             f"Entrypoint is not configured for {source_id}: {entrypoint}"
         )
 
+    normalized_entrypoint = normalize_url(entrypoint, entrypoint)
+    resolution_base = normalize_url(base_url or entrypoint, base_url or entrypoint)
+    if resolution_base is None:
+        raise DiscoveryPolicyError(f"Invalid discovery base URL: {base_url}")
+    if resolution_base != normalized_entrypoint and not is_allowed_candidate(
+        source, resolution_base
+    ):
+        raise DiscoveryPolicyError(
+            f"Discovery base URL is outside source policy: {resolution_base}"
+        )
+
     parser = _LinkParser()
     parser.feed(html)
 
-    normalized_entrypoint = normalize_url(entrypoint, entrypoint)
     candidates: set[str] = set()
-
     for href in parser.hrefs:
-        candidate = normalize_url(entrypoint, href)
-        if candidate is None or candidate == normalized_entrypoint:
+        candidate = normalize_url(resolution_base, href)
+        if candidate is None or candidate in {normalized_entrypoint, resolution_base}:
             continue
         if is_allowed_candidate(source, candidate):
             candidates.add(candidate)
