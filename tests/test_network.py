@@ -70,6 +70,8 @@ def test_fetch_html_uses_bounded_non_redirecting_request_and_closes_response():
     result = fetch_html(OPENAI, "https://openai.com/research/", request_get=fake_get)
 
     assert result.text == "<html>ok</html>"
+    assert result.body == b"<html>ok</html>"
+    assert result.bytes_read == len(result.body)
     assert response.closed is True
     assert seen[0][0] == "https://openai.com/research/"
     assert seen[0][1]["allow_redirects"] is False
