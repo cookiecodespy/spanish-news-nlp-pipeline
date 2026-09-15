@@ -1,7 +1,7 @@
 """Operator-facing assurance commands for the v2 research pipeline.
 
 This module deliberately keeps assurance deterministic. It validates local configuration,
-reads discovery state, and can run explicit live smoke checks using the same network and
+reads pipeline state, and can run explicit live smoke checks using the same network and
 discovery policy as production discovery. It does not use an LLM and it does not ingest
 candidate document bodies.
 """
@@ -160,12 +160,110 @@ def doctor(
     return {"ok": ok, "checks": [asdict(check) for check in checks]}
 
 
+def _table_exists(connection, table: str) -> bool:
+    return (
+        connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
+        ).fetchone()
+        is not None
+    )
+
+
+def _empty_stage(status_name: str) -> dict:
+    return {
+        "status": status_name,
+        "observation_id": None,
+        "classification": None,
+        "requested_url": None,
+        "timestamp": None,
+        "error": None,
+    }
+
+
+def _latest_ingestion_view(connection, source_id: str) -> dict:
+    if not _table_exists(connection, "ingestion_observations"):
+        return _empty_stage("NOT_INITIALIZED")
+    row = connection.execute(
+        """
+        SELECT id, status, classification, requested_url, final_url, fetched_at,
+               sha256, error
+        FROM ingestion_observations
+        WHERE source_id = ?
+        ORDER BY id DESC LIMIT 1
+        """,
+        (source_id,),
+    ).fetchone()
+    if row is None:
+        return _empty_stage("NEVER_RUN")
+    return {
+        "status": str(row["status"]).upper(),
+        "observation_id": int(row["id"]),
+        "classification": row["classification"],
+        "requested_url": row["requested_url"],
+        "final_url": row["final_url"],
+        "sha256": row["sha256"],
+        "timestamp": row["fetched_at"],
+        "error": row["error"],
+    }
+
+
+def _latest_normalization_view(connection, source_id: str) -> dict:
+    if not _table_exists(connection, "normalization_observations"):
+        return _empty_stage("NOT_INITIALIZED")
+    row = connection.execute(
+        """
+        SELECT id, status, classification, requested_url, normalized_at,
+               normalized_sha256, title, extractor_name, extractor_version, error
+        FROM normalization_observations
+        WHERE source_id = ?
+        ORDER BY id DESC LIMIT 1
+        """,
+        (source_id,),
+    ).fetchone()
+    if row is None:
+        return _empty_stage("NEVER_RUN")
+    return {
+        "status": str(row["status"]).upper(),
+        "observation_id": int(row["id"]),
+        "classification": row["classification"],
+        "requested_url": row["requested_url"],
+        "normalized_sha256": row["normalized_sha256"],
+        "title": row["title"],
+        "extractor": (
+            {
+                "name": row["extractor_name"],
+                "version": row["extractor_version"],
+            }
+            if row["extractor_name"] and row["extractor_version"]
+            else None
+        ),
+        "timestamp": row["normalized_at"],
+        "error": row["error"],
+    }
+
+
+def _source_status_without_state(source_id: str) -> dict:
+    return {
+        "source_id": source_id,
+        # Legacy/top-level fields continue to describe discovery for compatibility.
+        "status": "NEVER_RUN",
+        "run_id": None,
+        "candidate_count": 0,
+        "new_count": 0,
+        "known_count": 0,
+        "finished_at": None,
+        "error": None,
+        "ingestion": _empty_stage("NOT_INITIALIZED"),
+        "normalization": _empty_stage("NOT_INITIALIZED"),
+    }
+
+
 def status(
     *,
     registry_path: Path = DEFAULT_REGISTRY_PATH,
     state_path: Path = DEFAULT_STATE_PATH,
 ) -> dict:
-    """Return concise operator-visible discovery history by enabled source."""
+    """Return concise operator-visible state across discovery, ingestion and normalization."""
     registry = load_registry(registry_path)
     sources = _enabled_sources(registry)
     state_path = Path(state_path)
@@ -175,51 +273,33 @@ def status(
             "ok": True,
             "state_exists": False,
             "state_path": str(state_path),
-            "sources": [
-                {
-                    "source_id": source["id"],
-                    "status": "NEVER_RUN",
-                    "run_id": None,
-                    "candidate_count": 0,
-                    "new_count": 0,
-                    "known_count": 0,
-                    "finished_at": None,
-                    "error": None,
-                }
-                for source in sources
-            ],
+            "sources": [_source_status_without_state(source["id"]) for source in sources],
         }
 
     connection = connect_state(state_path)
     try:
         rows = []
         for source in sources:
-            row = latest_run(connection, source["id"])
-            if row is None:
-                rows.append(
-                    {
-                        "source_id": source["id"],
-                        "status": "NEVER_RUN",
-                        "run_id": None,
-                        "candidate_count": 0,
-                        "new_count": 0,
-                        "known_count": 0,
-                        "finished_at": None,
-                        "error": None,
-                    }
-                )
+            discovery = latest_run(connection, source["id"])
+            if discovery is None:
+                row = _source_status_without_state(source["id"])
+                row["ingestion"] = _latest_ingestion_view(connection, source["id"])
+                row["normalization"] = _latest_normalization_view(connection, source["id"])
+                rows.append(row)
                 continue
 
             rows.append(
                 {
                     "source_id": source["id"],
-                    "status": str(row["status"]).upper(),
-                    "run_id": int(row["id"]),
-                    "candidate_count": int(row["candidate_count"]),
-                    "new_count": int(row["new_count"]),
-                    "known_count": int(row["known_count"]),
-                    "finished_at": row["finished_at"],
-                    "error": row["error"],
+                    "status": str(discovery["status"]).upper(),
+                    "run_id": int(discovery["id"]),
+                    "candidate_count": int(discovery["candidate_count"]),
+                    "new_count": int(discovery["new_count"]),
+                    "known_count": int(discovery["known_count"]),
+                    "finished_at": discovery["finished_at"],
+                    "error": discovery["error"],
+                    "ingestion": _latest_ingestion_view(connection, source["id"]),
+                    "normalization": _latest_normalization_view(connection, source["id"]),
                 }
             )
     finally:
