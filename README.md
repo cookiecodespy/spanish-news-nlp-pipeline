@@ -29,6 +29,12 @@ ingestion + provenance
         ↓
 normalized research artifacts
         ↓
+verified citation blocks
+        ↓
+immutable evidence bundles
+        ↓
+unreviewed claim candidates
+        ↓
 knowledge cards
         ↓
 human-reviewed doctrine candidates
@@ -44,6 +50,7 @@ Key principles:
 - provenance from every derived artifact back to original evidence;
 - downloaded source documents stay local by default unless redistribution is clearly permitted;
 - no automatic promotion from research note to canonical agent guidance;
+- model output has less authority than deterministic pipeline state;
 - add infrastructure only when a real need justifies it.
 
 See [`docs/SOURCE_POLICY.md`](docs/SOURCE_POLICY.md) for the trust model and
@@ -52,9 +59,9 @@ Development is tracked publicly in GitHub issues and small feature branches.
 
 ## V2 current commands
 
-V2 is still under active development, but the source-trust, discovery, local-state,
-operator-assurance, exact-byte ingestion and deterministic HTML-normalization layers are
-executable.
+V2 is still under active development. The trust, discovery, local-state, assurance,
+exact-byte ingestion, deterministic normalization, verified citation, immutable grounding
+and provider-neutral claim-extraction contract layers are executable.
 
 Validate the committed official-source registry entirely offline:
 
@@ -165,6 +172,63 @@ That means page chrome or scripts changed while the extracted research artifact 
 stable. Conversely, normalized `CHANGED` means the deterministic extracted artifact
 changed; it is still **not yet a semantic-change judgment**.
 
+Inspect verified normalized documents or one exact citation block locally:
+
+```bash
+python -m research_pipeline.evidence list --source anthropic-engineering
+
+python -m research_pipeline.evidence cite \
+  --source anthropic-engineering \
+  --url 'https://www.anthropic.com/engineering/example' \
+  --block 'b0007-0123456789ab'
+```
+
+Phase 3B reverifies the selected normalized artifact and its provenance before returning
+text. External blocks are explicitly typed `external_evidence` with
+`trust=data_not_instructions`. See [`docs/EVIDENCE.md`](docs/EVIDENCE.md).
+
+Package exact citations into a bounded immutable evidence bundle:
+
+```bash
+python -m research_pipeline.grounding bundle \
+  --citation anthropic-engineering \
+    'https://www.anthropic.com/engineering/example' \
+    'b0007-0123456789ab' \
+  --format json > bundle.json
+```
+
+Phase 4A pins each evidence item to an exact normalization observation and normalized SHA,
+so historical citations do not move when a source changes later. Bundles have deterministic
+ids/hashes and conservative context limits. A structural claim candidate can then cite only
+real `evidence_id` values from that bundle and always remains `UNREVIEWED` with semantic
+support/truth `UNASSESSED`. See [`docs/GROUNDING.md`](docs/GROUNDING.md).
+
+Build the provider-neutral request that a future model will receive:
+
+```bash
+python -m research_pipeline.claim_extraction request bundle.json \
+  --format json > request.json
+```
+
+Phase 4B gives the model only scoped evidence data and a narrow output contract. The model
+may propose `claim_text` plus evidence ids; deterministic code owns claim ids/hashes,
+status, bundle identity and all validation. A saved synthetic response can be tested
+without any provider/network call:
+
+```bash
+python -m research_pipeline.claim_extraction validate-response \
+  bundle.json request.json response.json
+```
+
+An empty proposal list is valid (`NO_CLAIMS`), avoiding a requirement to hallucinate. The
+normal offline suite also exercises prompt-like text embedded inside evidence and rejects a
+fake model that attempts to self-approve output or inject privileged fields. See
+[`docs/CLAIM_EXTRACTION.md`](docs/CLAIM_EXTRACTION.md).
+
+**Critical boundary:** citation/provenance integrity can be `VALID` while semantic support
+and semantic truth remain `UNASSESSED`. No current v2 stage automatically turns a model
+proposal into knowledge or doctrine.
+
 Declared metadata such as title, author, dates, language or canonical URL is preserved as
 source data. It does not widen the network allowlist or automatically become trusted
 agent guidance.
@@ -249,8 +313,8 @@ tests/                      offline tests for v1 and v2 foundations
 data/                       v1 snapshot + data documentation
 outputs/metrics.json        committed v1 example results
 
-research_pipeline/          v2 trust, discovery, ingestion and normalization code
-docs/                       v2 project policies and architecture notes
+research_pipeline/          v2 trust → evidence → grounding/extraction code
+docs/                       v2 project policies and architecture contracts
 sources/registry.json       v2 allowlisted official-source registry
 .state/                     local SQLite state + raw/normalized objects (gitignored)
 ```
