@@ -149,6 +149,8 @@ def _joined_success_rows(
             no.title,
             no.block_count,
             no.char_count,
+            io.source_id AS ingestion_source_id,
+            io.requested_url AS ingestion_requested_url,
             io.final_url,
             io.fetched_at,
             io.classification AS ingestion_classification,
@@ -173,12 +175,22 @@ def _joined_success_rows(
 
 
 def _validate_provenance(row: sqlite3.Row) -> None:
+    if row["source_id"] != row["ingestion_source_id"]:
+        raise EvidenceError(
+            "normalization source id does not match linked ingestion observation"
+        )
+    if row["requested_url"] != row["ingestion_requested_url"]:
+        raise EvidenceError(
+            "normalization requested URL does not match linked ingestion observation"
+        )
     if row["raw_sha256"] != row["ingestion_sha256"]:
         raise EvidenceError(
             "normalization provenance raw SHA does not match linked ingestion observation"
         )
     if not row["final_url"]:
         raise EvidenceError("linked ingestion observation has no final transport URL")
+    if not row["raw_object_path"]:
+        raise EvidenceError("linked ingestion observation has no raw object path")
 
 
 def _document_summary(row: sqlite3.Row) -> dict[str, Any]:
