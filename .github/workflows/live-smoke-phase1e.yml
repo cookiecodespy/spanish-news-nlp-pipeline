@@ -1,0 +1,58 @@
+name: phase-1e-live-smoke
+
+on:
+  push:
+    branches:
+      - v2/operator-assurance
+    paths:
+      - ".github/workflows/live-smoke-phase1e.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Verify enabled official sources
+        shell: bash
+        run: |
+          set +e
+          python -m research_pipeline.assurance verify-live --delay 0.25 > live-verification.json
+          verify_rc=$?
+          set -e
+          cat live-verification.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("live-verification.json").read_text())
+          failures = [item for item in payload.get("sources", []) if item.get("status") == "FAIL"]
+          if failures:
+              raise SystemExit("unexpected live verification failure(s): " + ", ".join(item["source_id"] for item in failures))
+
+          blocked = [item["source_id"] for item in payload.get("sources", []) if item.get("status") == "BLOCKED"]
+          print(f"live smoke accepted: {len(payload.get('sources', []))} sources; blocked={blocked}")
+          PY
+          echo "verify-live CLI exit code: ${verify_rc}"
+
+      - name: Upload verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase-1e-live-verification
+          path: live-verification.json
+          retention-days: 14
