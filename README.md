@@ -23,7 +23,7 @@ The direction for v2 is:
 ```text
 allowlisted official sources
         ↓
-discovery
+discovery + local state
         ↓
 ingestion + provenance
         ↓
@@ -70,6 +70,12 @@ python -m research_pipeline.live_discovery --source anthropic-engineering
 Live discovery checks `robots.txt`, uses bounded timeouts and response sizes, validates
 every redirect, stays inside the source allowlist, and prints candidate URLs as JSON.
 It does **not** recursively crawl or download the discovered documents.
+
+By default, the command keeps a local SQLite ledger at
+`.state/discovery.sqlite3`. That file is gitignored. Repeated runs surface top-level
+`new_count` and `known_count` values, so an operator can see what changed without
+opening SQLite or reading internal logs. A custom local state path can be supplied with
+`--state PATH`.
 
 Available source IDs currently live in [`sources/registry.json`](sources/registry.json).
 All automated tests remain offline.
@@ -154,6 +160,7 @@ outputs/metrics.json        committed v1 example results
 research_pipeline/          v2 trust, discovery and future ingestion code
 docs/                       v2 project policies and architecture notes
 sources/registry.json       v2 allowlisted official-source registry
+.state/                     local discovery ledger (gitignored)
 ```
 
 ## V1 limitations
