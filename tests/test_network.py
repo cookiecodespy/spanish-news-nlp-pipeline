@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+import requests
 
 from research_pipeline.network import (
     NetworkPolicyError,
@@ -29,11 +30,15 @@ class FakeResponse:
         self.headers = headers or {}
         self.encoding = encoding
         self.chunk_size = chunk_size
+        self.closed = False
 
     def iter_content(self, chunk_size=65536):
         size = self.chunk_size or chunk_size
         for start in range(0, len(self.body), size):
             yield self.body[start : start + size]
+
+    def close(self):
+        self.closed = True
 
 
 def fake_get_sequence(responses, seen):
@@ -54,21 +59,18 @@ def test_configured_entrypoint_and_allowed_candidate_are_fetchable():
     assert not is_allowed_fetch_url(OPENAI, "https://openai.com/pricing/")
 
 
-def test_fetch_html_uses_bounded_non_redirecting_request():
+def test_fetch_html_uses_bounded_non_redirecting_request_and_closes_response():
     seen = []
-    fake_get = fake_get_sequence(
-        [
-            FakeResponse(
-                body=b"<html>ok</html>",
-                headers={"Content-Type": "text/html; charset=utf-8"},
-            )
-        ],
-        seen,
+    response = FakeResponse(
+        body=b"<html>ok</html>",
+        headers={"Content-Type": "text/html; charset=utf-8"},
     )
+    fake_get = fake_get_sequence([response], seen)
 
     result = fetch_html(OPENAI, "https://openai.com/research/", request_get=fake_get)
 
     assert result.text == "<html>ok</html>"
+    assert response.closed is True
     assert seen[0][0] == "https://openai.com/research/"
     assert seen[0][1]["allow_redirects"] is False
     assert seen[0][1]["stream"] is True
@@ -77,17 +79,15 @@ def test_fetch_html_uses_bounded_non_redirecting_request():
 
 def test_fetch_html_allows_valid_redirect_and_revalidates_target():
     seen = []
-    fake_get = fake_get_sequence(
-        [
-            FakeResponse(status_code=302, headers={"Location": "/index/example/"}),
-            FakeResponse(body=b"<html>ok</html>", headers={"Content-Type": "text/html"}),
-        ],
-        seen,
-    )
+    redirect = FakeResponse(status_code=302, headers={"Location": "/index/example/"})
+    final = FakeResponse(body=b"<html>ok</html>", headers={"Content-Type": "text/html"})
+    fake_get = fake_get_sequence([redirect, final], seen)
 
     result = fetch_html(OPENAI, "https://openai.com/research/", request_get=fake_get)
 
     assert result.url == "https://openai.com/index/example/"
+    assert redirect.closed is True
+    assert final.closed is True
     assert [item[0] for item in seen] == [
         "https://openai.com/research/",
         "https://openai.com/index/example/",
@@ -153,6 +153,14 @@ def test_fetch_html_rejects_declared_oversize_response_early():
             request_get=fake_get,
             max_bytes=8,
         )
+
+
+def test_request_exceptions_are_normalized_to_policy_error():
+    def timeout(*args, **kwargs):
+        raise requests.Timeout("simulated timeout")
+
+    with pytest.raises(NetworkPolicyError, match="network request failed"):
+        fetch_html(OPENAI, "https://openai.com/research/", request_get=timeout)
 
 
 def test_missing_robots_txt_is_not_treated_as_an_error():
