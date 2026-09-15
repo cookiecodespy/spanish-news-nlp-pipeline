@@ -30,6 +30,43 @@ HARD_MAX_ITEMS = 32
 DEFAULT_MAX_CHARS = 12_000
 HARD_MAX_CHARS = 50_000
 
+_BUNDLE_KEYS = {
+    "schema_version",
+    "type",
+    "trust",
+    "item_count",
+    "total_chars",
+    "items",
+    "bundle_sha256",
+    "bundle_id",
+}
+_ITEM_KEYS = {"evidence_id", "type", "trust", "document", "block", "provenance"}
+_DOCUMENT_KEYS = {"title", "source_id", "requested_url", "final_url"}
+_BLOCK_KEYS = {"ref", "kind", "heading_path", "text"}
+_PROVENANCE_KEYS = {
+    "ingestion_observation_id",
+    "raw_sha256",
+    "raw_object_path",
+    "fetched_at",
+    "normalization_observation_id",
+    "normalized_sha256",
+    "artifact_path",
+    "normalized_at",
+    "extractor",
+}
+_CLAIM_KEYS = {
+    "schema_version",
+    "type",
+    "status",
+    "semantic_support",
+    "claim_text",
+    "bundle_id",
+    "bundle_sha256",
+    "citations",
+    "claim_sha256",
+    "claim_id",
+}
+
 
 class GroundingError(RuntimeError):
     """Raised when an evidence bundle or claim contract is invalid."""
@@ -46,6 +83,15 @@ def _canonical_bytes(value: Any) -> bytes:
 
 def _sha256(value: Any) -> str:
     return hashlib.sha256(_canonical_bytes(value)).hexdigest()
+
+
+def _require_exact_keys(value: dict[str, Any], allowed: set[str], label: str) -> None:
+    extra = set(value) - allowed
+    missing = allowed - set(value)
+    if extra:
+        raise GroundingError(f"{label} has unexpected fields: {sorted(extra)}")
+    if missing:
+        raise GroundingError(f"{label} is missing fields: {sorted(missing)}")
 
 
 def _require_hex_sha256(value: Any, field: str) -> str:
@@ -84,20 +130,18 @@ def _evidence_identity(citation: dict[str, Any]) -> dict[str, Any]:
         raise GroundingError("citation block ref is required")
     if not isinstance(observation_id, int) or observation_id < 1:
         raise GroundingError("normalization_observation_id must be a positive integer")
-    normalized_sha256 = _require_hex_sha256(normalized_sha256, "normalized_sha256")
 
     return {
         "source_id": source_id,
         "requested_url": requested_url,
         "normalization_observation_id": observation_id,
-        "normalized_sha256": normalized_sha256,
+        "normalized_sha256": _require_hex_sha256(normalized_sha256, "normalized_sha256"),
         "block_ref": block_ref,
     }
 
 
 def _evidence_id(citation: dict[str, Any]) -> str:
-    digest = _sha256(_evidence_identity(citation))
-    return f"ev-{digest[:20]}"
+    return f"ev-{_sha256(_evidence_identity(citation))[:20]}"
 
 
 def _bundle_item(citation: dict[str, Any]) -> dict[str, Any]:
@@ -107,8 +151,7 @@ def _bundle_item(citation: dict[str, Any]) -> dict[str, Any]:
         raise GroundingError("bundle input must be typed external_evidence")
     if citation.get("trust") != "data_not_instructions":
         raise GroundingError("external evidence must remain data_not_instructions")
-
-    item = {
+    return {
         "evidence_id": _evidence_id(citation),
         "type": "external_evidence",
         "trust": "data_not_instructions",
@@ -116,28 +159,22 @@ def _bundle_item(citation: dict[str, Any]) -> dict[str, Any]:
         "block": citation["block"],
         "provenance": citation["provenance"],
     }
-    return item
 
 
 def _bundle_core(items: list[dict[str, Any]]) -> dict[str, Any]:
-    total_chars = sum(len(item["block"]["text"]) for item in items)
     return {
         "schema_version": BUNDLE_SCHEMA_VERSION,
         "type": "evidence_bundle",
         "trust": "external_data_only",
         "item_count": len(items),
-        "total_chars": total_chars,
+        "total_chars": sum(len(item["block"]["text"]) for item in items),
         "items": items,
     }
 
 
 def _with_bundle_identity(core: dict[str, Any]) -> dict[str, Any]:
     digest = _sha256(core)
-    return {
-        **core,
-        "bundle_sha256": digest,
-        "bundle_id": f"eb-{digest[:20]}",
-    }
+    return {**core, "bundle_sha256": digest, "bundle_id": f"eb-{digest[:20]}"}
 
 
 def build_bundle(
@@ -147,10 +184,10 @@ def build_bundle(
     max_items: int = DEFAULT_MAX_ITEMS,
     max_chars: int = DEFAULT_MAX_CHARS,
 ) -> dict[str, Any]:
-    """Build one bounded deterministic bundle from exact Phase 3B citation selectors."""
+    """Build a bounded deterministic bundle from exact Phase 3B citation selectors."""
     _validate_limits(max_items, max_chars)
-
     by_id: dict[str, dict[str, Any]] = {}
+
     for source_id, requested_url, block_ref in citations:
         try:
             citation = get_citation(
@@ -163,8 +200,8 @@ def build_bundle(
             raise GroundingError(str(exc)) from exc
         item = _bundle_item(citation)
         evidence_id = item["evidence_id"]
-        previous = by_id.get(evidence_id)
-        if previous is not None and previous != item:
+        prior = by_id.get(evidence_id)
+        if prior is not None and prior != item:
             raise GroundingError(f"evidence id collision: {evidence_id}")
         by_id[evidence_id] = item
 
@@ -272,9 +309,7 @@ def _citation_from_exact_observation(
         raise GroundingError(f"citation block {block_ref} has no text")
     if not isinstance(kind, str) or not kind:
         raise GroundingError(f"citation block {block_ref} has no kind")
-    if not isinstance(heading_path, list) or not all(
-        isinstance(item, str) for item in heading_path
-    ):
+    if not isinstance(heading_path, list) or not all(isinstance(item, str) for item in heading_path):
         raise GroundingError(f"citation block {block_ref} has invalid heading_path")
 
     return {
@@ -310,13 +345,42 @@ def _citation_from_exact_observation(
     }
 
 
+def _validate_item_shape(item: dict[str, Any]) -> int:
+    _require_exact_keys(item, _ITEM_KEYS, "bundle item")
+    if item.get("type") != "external_evidence":
+        raise GroundingError("every bundle item must be external_evidence")
+    if item.get("trust") != "data_not_instructions":
+        raise GroundingError("every bundle item must remain data_not_instructions")
+
+    document = item.get("document")
+    block = item.get("block")
+    provenance = item.get("provenance")
+    if not isinstance(document, dict) or not isinstance(block, dict) or not isinstance(provenance, dict):
+        raise GroundingError("bundle item document, block and provenance must be objects")
+    _require_exact_keys(document, _DOCUMENT_KEYS, "bundle document")
+    _require_exact_keys(block, _BLOCK_KEYS, "bundle block")
+    _require_exact_keys(provenance, _PROVENANCE_KEYS, "bundle provenance")
+
+    extractor = provenance.get("extractor")
+    if not isinstance(extractor, dict) or set(extractor) != {"name", "version"}:
+        raise GroundingError("bundle provenance extractor must contain only name and version")
+
+    expected_id = _evidence_id({"ok": True, **item})
+    if item.get("evidence_id") != expected_id:
+        raise GroundingError("bundle evidence_id does not match immutable evidence identity")
+
+    text = block.get("text")
+    if not isinstance(text, str) or not text:
+        raise GroundingError(f"bundle item {expected_id} has invalid block text")
+    return len(text)
+
+
 def _validate_bundle_shape(bundle: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(bundle, dict):
         raise GroundingError("bundle must be a JSON object")
+    _require_exact_keys(bundle, _BUNDLE_KEYS, "bundle")
     if bundle.get("schema_version") != BUNDLE_SCHEMA_VERSION:
-        raise GroundingError(
-            f"unsupported bundle schema version: {bundle.get('schema_version')}"
-        )
+        raise GroundingError(f"unsupported bundle schema version: {bundle.get('schema_version')}")
     if bundle.get("type") != "evidence_bundle":
         raise GroundingError("bundle type must be evidence_bundle")
     if bundle.get("trust") != "external_data_only":
@@ -335,23 +399,11 @@ def _validate_bundle_shape(bundle: dict[str, Any]) -> list[dict[str, Any]]:
     for item in items:
         if not isinstance(item, dict):
             raise GroundingError("every bundle item must be an object")
-        if item.get("type") != "external_evidence":
-            raise GroundingError("every bundle item must be external_evidence")
-        if item.get("trust") != "data_not_instructions":
-            raise GroundingError("every bundle item must remain data_not_instructions")
-        expected_id = _evidence_id({"ok": True, **item})
-        if item.get("evidence_id") != expected_id:
-            raise GroundingError("bundle evidence_id does not match immutable evidence identity")
-        if expected_id in seen:
-            raise GroundingError(f"duplicate evidence id in bundle: {expected_id}")
-        seen.add(expected_id)
-        try:
-            text = item["block"]["text"]
-        except (KeyError, TypeError) as exc:
-            raise GroundingError(f"bundle item {expected_id} has no block text") from exc
-        if not isinstance(text, str) or not text:
-            raise GroundingError(f"bundle item {expected_id} has invalid block text")
-        total_chars += len(text)
+        total_chars += _validate_item_shape(item)
+        evidence_id = item["evidence_id"]
+        if evidence_id in seen:
+            raise GroundingError(f"duplicate evidence id in bundle: {evidence_id}")
+        seen.add(evidence_id)
 
     if total_chars > HARD_MAX_CHARS:
         raise GroundingError(f"bundle exceeds hard character limit of {HARD_MAX_CHARS}")
@@ -452,11 +504,7 @@ def make_claim_candidate(
 
     core = _claim_core(claim_text=text, bundle=bundle, citation_ids=ids)
     digest = _sha256(core)
-    return {
-        **core,
-        "claim_sha256": digest,
-        "claim_id": f"cc-{digest[:20]}",
-    }
+    return {**core, "claim_sha256": digest, "claim_id": f"cc-{digest[:20]}"}
 
 
 def validate_claim_candidate(
@@ -469,10 +517,9 @@ def validate_claim_candidate(
     bundle_validation = verify_bundle(bundle, state_path=state_path)
     if not isinstance(candidate, dict):
         raise GroundingError("claim candidate must be a JSON object")
+    _require_exact_keys(candidate, _CLAIM_KEYS, "claim candidate")
     if candidate.get("schema_version") != CLAIM_SCHEMA_VERSION:
-        raise GroundingError(
-            f"unsupported claim schema version: {candidate.get('schema_version')}"
-        )
+        raise GroundingError(f"unsupported claim schema version: {candidate.get('schema_version')}")
     if candidate.get("type") != "claim_candidate":
         raise GroundingError("candidate type must be claim_candidate")
     if candidate.get("status") != "UNREVIEWED":
@@ -487,7 +534,6 @@ def validate_claim_candidate(
     claim_text = candidate.get("claim_text")
     if not isinstance(claim_text, str) or not claim_text.strip():
         raise GroundingError("claim_text must be non-empty")
-
     citations = candidate.get("citations")
     if not isinstance(citations, list) or not citations:
         raise GroundingError("claim candidate requires at least one citation")
@@ -495,6 +541,7 @@ def validate_claim_candidate(
         raise GroundingError("claim citations must be non-empty evidence ids")
     if len(citations) != len(set(citations)):
         raise GroundingError("claim candidate contains duplicate citation ids")
+
     available = {item["evidence_id"] for item in bundle["items"]}
     unknown = [item for item in citations if item not in available]
     if unknown:
@@ -535,7 +582,8 @@ def _read_json(path: Path, label: str) -> dict[str, Any]:
 
 
 def format_text(payload: dict[str, Any]) -> str:
-    if not payload.get("ok"):
+    """Render artifacts and validation results without confusing artifacts with errors."""
+    if payload.get("ok") is False:
         return f"ERROR: {payload.get('error', 'unknown grounding error')}"
 
     if payload.get("type") == "evidence_bundle":
@@ -655,20 +703,20 @@ def main() -> int:
                 max_chars=args.max_chars,
             )
         elif args.command == "verify-bundle":
-            bundle = _read_json(args.bundle, "bundle")
-            payload = verify_bundle(bundle, state_path=args.state)
+            payload = verify_bundle(_read_json(args.bundle, "bundle"), state_path=args.state)
         elif args.command == "make-claim":
-            bundle = _read_json(args.bundle, "bundle")
             payload = make_claim_candidate(
                 args.text,
                 args.citation_ids,
-                bundle,
+                _read_json(args.bundle, "bundle"),
                 state_path=args.state,
             )
         else:
-            bundle = _read_json(args.bundle, "bundle")
-            claim = _read_json(args.claim, "claim")
-            payload = validate_claim_candidate(claim, bundle, state_path=args.state)
+            payload = validate_claim_candidate(
+                _read_json(args.claim, "claim"),
+                _read_json(args.bundle, "bundle"),
+                state_path=args.state,
+            )
     except (GroundingError, EvidenceError, ValueError) as exc:
         payload = {"ok": False, "error": str(exc)}
 
@@ -676,7 +724,7 @@ def main() -> int:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
         print(format_text(payload))
-    return 0 if payload.get("ok") else 1
+    return 1 if payload.get("ok") is False else 0
 
 
 if __name__ == "__main__":
