@@ -50,6 +50,30 @@ See [`docs/SOURCE_POLICY.md`](docs/SOURCE_POLICY.md) for the trust model and
 [`sources/registry.json`](sources/registry.json) for the initial official-source registry.
 Development is tracked publicly in GitHub issues and small feature branches.
 
+## V2 current commands
+
+V2 is still under active development, but the source-trust and first discovery layers
+are executable.
+
+Validate the committed official-source registry entirely offline:
+
+```bash
+python -m research_pipeline.registry
+```
+
+Run one **live, shallow discovery** against an explicitly allowlisted source:
+
+```bash
+python -m research_pipeline.live_discovery --source anthropic-engineering
+```
+
+Live discovery checks `robots.txt`, uses bounded timeouts and response sizes, validates
+every redirect, stays inside the source allowlist, and prints candidate URLs as JSON.
+It does **not** recursively crawl or download the discovered documents.
+
+Available source IDs currently live in [`sources/registry.json`](sources/registry.json).
+All automated tests remain offline.
+
 ## V1 pipeline
 
 ```text
@@ -123,10 +147,11 @@ Full per-class breakdown and confusion matrix live in
 ```text
 feeds.json                  v1 feed list (label ↔ RSS url)
 src/                        v1 NLP implementation
-tests/                      offline tests for v1 and shared foundations
+tests/                      offline tests for v1 and v2 foundations
 data/                       v1 snapshot + data documentation
 outputs/metrics.json        committed v1 example results
 
+research_pipeline/          v2 trust, discovery and future ingestion code
 docs/                       v2 project policies and architecture notes
 sources/registry.json       v2 allowlisted official-source registry
 ```
