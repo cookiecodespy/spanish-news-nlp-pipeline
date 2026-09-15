@@ -4,9 +4,11 @@ from pathlib import Path
 import pytest
 
 from research_pipeline.discovery import DiscoveryPolicyError
+from research_pipeline.discovery_state import connect_state, latest_run
 from research_pipeline.live_discovery import (
     discover_entrypoint_live,
     discover_source_live,
+    discover_source_with_state,
     robots_allows,
     robots_crawl_delay,
 )
@@ -155,3 +157,81 @@ def test_source_discovery_fetches_robots_once_and_honors_crawl_delay():
     assert seen.count("https://deepmind.google/robots.txt") == 1
     assert len(seen) == 3
     assert sleeps == [3.0, 3.0]
+
+
+def test_stateful_discovery_reports_new_then_known(tmp_path):
+    connection = connect_state(tmp_path / "discovery.sqlite3")
+
+    first_get = fake_get_sequence(
+        [
+            FakeResponse(
+                body=b"User-agent: *\nAllow: /\n",
+                headers={"Content-Type": "text/plain"},
+            ),
+            FakeResponse(
+                body=b'<a href="/engineering/example/">example</a>',
+                headers={"Content-Type": "text/html"},
+            ),
+        ],
+        [],
+    )
+    _, first_summary = discover_source_with_state(
+        REGISTRY,
+        "anthropic-engineering",
+        connection,
+        request_get=first_get,
+        delay_s=0,
+    )
+    assert first_summary.new_count == 1
+    assert first_summary.known_count == 0
+
+    second_get = fake_get_sequence(
+        [
+            FakeResponse(
+                body=b"User-agent: *\nAllow: /\n",
+                headers={"Content-Type": "text/plain"},
+            ),
+            FakeResponse(
+                body=b'<a href="/engineering/example/">example</a>',
+                headers={"Content-Type": "text/html"},
+            ),
+        ],
+        [],
+    )
+    _, second_summary = discover_source_with_state(
+        REGISTRY,
+        "anthropic-engineering",
+        connection,
+        request_get=second_get,
+        delay_s=0,
+    )
+    assert second_summary.new_count == 0
+    assert second_summary.known_count == 1
+
+
+def test_stateful_discovery_records_policy_failure(tmp_path):
+    connection = connect_state(tmp_path / "discovery.sqlite3")
+    fake_get = fake_get_sequence(
+        [
+            FakeResponse(
+                body=b"User-agent: *\nDisallow: /engineering\n",
+                headers={"Content-Type": "text/plain"},
+            )
+        ],
+        [],
+    )
+
+    with pytest.raises(DiscoveryPolicyError, match="robots.txt disallows"):
+        discover_source_with_state(
+            REGISTRY,
+            "anthropic-engineering",
+            connection,
+            request_get=fake_get,
+            delay_s=0,
+        )
+
+    row = latest_run(connection, "anthropic-engineering")
+    assert row is not None
+    assert row["status"] == "error"
+    assert row["candidate_count"] == 0
+    assert "robots.txt disallows" in row["error"]
