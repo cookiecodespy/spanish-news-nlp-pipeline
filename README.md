@@ -9,7 +9,48 @@ baseline classifiers and report honest metrics.
 > work actually runs on — collection, weak supervision, cleaning, leakage-safe splits,
 > baselines and honest metrics — at a size anyone can run on a laptop in under a minute.
 
-## Pipeline
+## Project evolution
+
+This repository is now evolving **in public** from that original NLP experiment into a
+research/knowledge pipeline for AI-agent engineering.
+
+The existing implementation remains the preserved **v1 baseline**. The new **v2** is
+being built incrementally in small, reviewable commits rather than replacing v1 in one
+large rewrite.
+
+The direction for v2 is:
+
+```text
+allowlisted official sources
+        ↓
+discovery
+        ↓
+ingestion + provenance
+        ↓
+normalized research artifacts
+        ↓
+knowledge cards
+        ↓
+human-reviewed doctrine candidates
+        ↓
+Obsidian / agent consumption
+```
+
+Key principles:
+
+- primary and official sources first;
+- default-deny source allowlist;
+- external content is data, never instructions;
+- provenance from every derived artifact back to original evidence;
+- downloaded source documents stay local by default unless redistribution is clearly permitted;
+- no automatic promotion from research note to canonical agent guidance;
+- add infrastructure only when a real need justifies it.
+
+See [`docs/SOURCE_POLICY.md`](docs/SOURCE_POLICY.md) for the trust model and
+[`sources/registry.json`](sources/registry.json) for the initial official-source registry.
+Development is tracked publicly in GitHub issues and small feature branches.
+
+## V1 pipeline
 
 ```text
 Google News RSS (es-419 / CL, 6 sections)
@@ -35,19 +76,19 @@ supervision** — no manual annotation), across 6 classes: `nacional`, `economia
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# Reproduce results from the committed snapshot (no network needed):
+# Reproduce v1 results from the committed snapshot (no network needed):
 SKIP_FETCH=1 ./run_all.sh
 
 # Or refresh the snapshot with today's headlines first:
 ./run_all.sh
 
-# Unit tests (text normalization / dedup):
+# Offline tests:
 pytest
 ```
 
 All commands run from the repo root.
 
-## Results
+## V1 results
 
 Committed snapshot (fetched 2026-06-12 UTC): **360 headlines → 347 unique** after
 normalization and dedup; train 260 / test 87, stratified, seed 42.
@@ -60,12 +101,12 @@ normalization and dedup; train 260 / test 87, stratified, seed 42.
 **Honest read:** short headlines, overlapping sections (`salud` vs `ciencia`) and only
 260 training examples make this genuinely hard — the TF-IDF baseline beats the majority
 floor by ~2.6× accuracy, and that gap (not the absolute score) is the meaningful signal
-at this scale. The value of the repo is the **pipeline discipline**: reproducible
-snapshot, leakage-safe splits, balanced class weights and macro metrics on an imbalanced
-label set. Full per-class breakdown and confusion matrix in
+at this scale. The value of v1 is the **pipeline discipline**: reproducible snapshot,
+leakage-safe splits, balanced class weights and macro metrics on an imbalanced label set.
+Full per-class breakdown and confusion matrix live in
 [`outputs/metrics.json`](outputs/metrics.json).
 
-## Design decisions
+## V1 design decisions
 
 - **Weak supervision** (feed section = label): cheap, scalable, and honest about its
   noise — section overlap is reported, not hidden.
@@ -80,25 +121,25 @@ label set. Full per-class breakdown and confusion matrix in
 ## Repo structure
 
 ```text
-feeds.json                  feed list (label ↔ RSS url)
-src/fetch_data.py           RSS → JSONL snapshot
-src/clean_text.py           pure normalization helpers (unit-tested)
-src/build_dataset.py        clean + dedupe + stratified split
-src/train_baseline.py       majority + TF-IDF/LogReg models
-src/evaluate.py             metrics → outputs/metrics.json
-tests/                      pytest suite for clean_text
-data/                       snapshot + data documentation (see data/README.md)
-outputs/metrics.json        committed example results
+feeds.json                  v1 feed list (label ↔ RSS url)
+src/                        v1 NLP implementation
+tests/                      offline tests for v1 and shared foundations
+data/                       v1 snapshot + data documentation
+outputs/metrics.json        committed v1 example results
+
+docs/                       v2 project policies and architecture notes
+sources/registry.json       v2 allowlisted official-source registry
 ```
 
-## Limitations & next steps
+## V1 limitations
 
-- Small snapshot (~350 headlines) — accumulate snapshots over time for a real corpus.
-- Labels are weak: editorial sections overlap; a manually-audited eval slice would
-  quantify that noise.
-- Baselines only, by design. Natural next step: fine-tune a Spanish transformer
-  (e.g. BETO) with PyTorch and compare against this floor, plus probability
-  calibration and a minimal serving endpoint.
+- Small snapshot (~350 headlines).
+- Labels are weak: editorial sections overlap.
+- Baselines only, by design.
+- The original experiment is intentionally small and laptop-friendly.
+
+Those limitations are preserved rather than hidden. New development is focused on the
+v2 research/knowledge pipeline instead of expanding v1 into a larger classifier project.
 
 ## Author
 

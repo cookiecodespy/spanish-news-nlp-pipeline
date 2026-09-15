@@ -1,6 +1,40 @@
+# Python
 .venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+secrets.json
+
+# Local caches and downloaded research material
+.cache/
+cache/
+research_cache/
+downloads/
+
+# Local databases and indexes
+*.sqlite
+*.sqlite3
+*.db
+
+# Private/local knowledge workspaces
+.obsidian/
+private_vault/
+vault-private/
+
+# Generated v1 artifacts
 data/processed/
 outputs/models.joblib
+
+# OS/editor noise
+.DS_Store
+Thumbs.db

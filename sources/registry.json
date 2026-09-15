@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "policy": "docs/SOURCE_POLICY.md",
+  "default": "deny",
+  "discovery_defaults": {
+    "scope": "entrypoint_links_only",
+    "same_domain_only": true
+  },
+  "sources": [
+    {
+      "id": "openai-research",
+      "organization": "OpenAI",
+      "organization_types": ["frontier_lab", "research_lab"],
+      "source_type": "research",
+      "official": true,
+      "enabled": true,
+      "domains": ["openai.com"],
+      "entrypoints": [
+        "https://openai.com/research/",
+        "https://openai.com/research/index/"
+      ],
+      "allowed_url_prefixes": [
+        "https://openai.com/research/",
+        "https://openai.com/index/"
+      ],
+      "topics": [
+        "agents",
+        "reasoning",
+        "evaluations",
+        "safety",
+        "coding-agents",
+        "tool-use"
+      ]
+    },
+    {
+      "id": "anthropic-engineering",
+      "organization": "Anthropic",
+      "organization_types": ["frontier_lab", "research_lab", "developer_tools"],
+      "source_type": "engineering",
+      "official": true,
+      "enabled": true,
+      "domains": ["anthropic.com", "www.anthropic.com"],
+      "entrypoints": [
+        "https://www.anthropic.com/engineering"
+      ],
+      "allowed_url_prefixes": [
+        "https://www.anthropic.com/engineering/"
+      ],
+      "topics": [
+        "agents",
+        "orchestration",
+        "context-engineering",
+        "tool-use",
+        "mcp",
+        "evaluations",
+        "coding-agents",
+        "long-running-agents",
+        "security"
+      ]
+    },
+    {
+      "id": "google-deepmind-research",
+      "organization": "Google DeepMind",
+      "organization_types": ["frontier_lab", "research_lab"],
+      "source_type": "research",
+      "official": true,
+      "enabled": true,
+      "domains": ["deepmind.google"],
+      "entrypoints": [
+        "https://deepmind.google/research/",
+        "https://deepmind.google/research/publications/"
+      ],
+      "allowed_url_prefixes": [
+        "https://deepmind.google/research/"
+      ],
+      "topics": [
+        "agents",
+        "multi-agent",
+        "reasoning",
+        "evaluations",
+        "safety",
+        "memory",
+        "tool-use"
+      ]
+    },
+    {
+      "id": "google-research-publications",
+      "organization": "Google Research",
+      "organization_types": ["research_lab"],
+      "source_type": "research",
+      "official": true,
+      "enabled": true,
+      "domains": ["research.google"],
+      "entrypoints": [
+        "https://research.google/pubs/"
+      ],
+      "allowed_url_prefixes": [
+        "https://research.google/pubs/"
+      ],
+      "topics": [
+        "agents",
+        "multi-agent",
+        "reasoning",
+        "evaluations",
+        "systems",
+        "security",
+        "human-ai-interaction"
+      ]
+    },
+    {
+      "id": "cerebras-blog",
+      "organization": "Cerebras",
+      "organization_types": ["infrastructure", "developer_tools"],
+      "source_type": "engineering",
+      "official": true,
+      "enabled": true,
+      "domains": ["cerebras.ai", "www.cerebras.ai"],
+      "entrypoints": [
+        "https://www.cerebras.ai/blog"
+      ],
+      "allowed_url_prefixes": [
+        "https://www.cerebras.ai/blog/"
+      ],
+      "topics": [
+        "agents",
+        "orchestration",
+        "inference",
+        "verification",
+        "research-loops",
+        "developer-tools"
+      ]
+    }
+  ]
+}
