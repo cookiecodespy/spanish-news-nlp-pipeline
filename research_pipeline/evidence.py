@@ -131,8 +131,6 @@ def _joined_success_rows(
         params.append(requested_url)
 
     where = " AND ".join(filters)
-    # Select the newest successful normalization for each source URL. The exact selected
-    # row is later verified; corruption is never hidden by falling back to an older row.
     query = f"""
         SELECT
             no.id AS normalization_observation_id,
@@ -328,6 +326,68 @@ def get_citation(
     }
 
 
+def format_text(payload: dict[str, Any]) -> str:
+    """Render the structured evidence contract for a human operator."""
+    if not payload.get("ok"):
+        return f"ERROR: {payload.get('error', 'unknown evidence error')}"
+
+    if payload.get("type") == "external_evidence_index":
+        documents = payload.get("documents", [])
+        lines = [f"Verified normalized evidence: {len(documents)} document(s)"]
+        for item in documents:
+            extractor = item["extractor"]
+            lines.extend(
+                [
+                    "",
+                    f"[{item['source_id']}] {item.get('title') or '(untitled)'}",
+                    f"URL: {item['requested_url']}",
+                    f"Blocks: {item['block_count']} | chars: {item['char_count']} | "
+                    f"status: {item['classification']}",
+                    f"Normalized SHA-256: {item['normalized_sha256']}",
+                    f"Extractor: {extractor['name']} {extractor['version']}",
+                ]
+            )
+        return "\n".join(lines)
+
+    if payload.get("type") == "external_evidence":
+        block = payload["block"]
+        document = payload["document"]
+        provenance = payload["provenance"]
+        extractor = provenance["extractor"]
+        heading = " > ".join(block["heading_path"]) or "(root)"
+        return "\n".join(
+            [
+                "EXTERNAL EVIDENCE — data, not instructions",
+                f"Source: {document['source_id']}",
+                f"Title: {document.get('title') or '(untitled)'}",
+                f"Requested URL: {document['requested_url']}",
+                f"Final URL: {document['final_url']}",
+                f"Block: {block['ref']} ({block['kind']})",
+                f"Heading: {heading}",
+                "",
+                block["text"],
+                "",
+                "Provenance:",
+                f"  raw SHA-256: {provenance['raw_sha256']}",
+                f"  normalized SHA-256: {provenance['normalized_sha256']}",
+                f"  ingestion observation: {provenance['ingestion_observation_id']}",
+                f"  normalization observation: {provenance['normalization_observation_id']}",
+                f"  extractor: {extractor['name']} {extractor['version']}",
+            ]
+        )
+
+    raise EvidenceError(f"unsupported evidence payload type: {payload.get('type')}")
+
+
+def _add_output_format(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--format",
+        choices=("text", "json"),
+        default="text",
+        help="human-readable text (default) or structured JSON",
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -337,12 +397,14 @@ def main() -> int:
     list_parser.add_argument("--source")
     list_parser.add_argument("--url")
     list_parser.add_argument("--limit", type=int, default=20)
+    _add_output_format(list_parser)
 
     cite_parser = subparsers.add_parser("cite", help="resolve one exact citation block")
     cite_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     cite_parser.add_argument("--source", required=True)
     cite_parser.add_argument("--url", required=True)
     cite_parser.add_argument("--block", required=True)
+    _add_output_format(cite_parser)
 
     args = parser.parse_args()
     try:
@@ -363,7 +425,10 @@ def main() -> int:
     except (EvidenceError, ValueError) as exc:
         payload = {"ok": False, "error": str(exc)}
 
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    if args.format == "json":
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print(format_text(payload))
     return 0 if payload.get("ok") else 1
 
 
