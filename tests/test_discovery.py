@@ -16,6 +16,23 @@ def test_normalize_url_resolves_relative_and_strips_fragment():
     ) == "https://www.anthropic.com/engineering/building-effective-agents"
 
 
+def test_normalize_url_rejects_script_data_and_contact_pseudo_links_before_join():
+    base = "https://research.google/pubs/"
+
+    assert normalize_url(base, "javascript:alert(1)") is None
+    assert normalize_url(base, "javascript(0):void") is None
+    assert normalize_url(base, " JAVASCRIPT (0):void ") is None
+    assert normalize_url(base, "vbscript:msgbox(1)") is None
+    assert normalize_url(base, "data:text/plain,hello") is None
+    assert normalize_url(base, "mailto:research@example.com") is None
+    assert normalize_url(base, "tel:+15555550123") is None
+
+    # A real relative path that merely contains the word remains navigational.
+    assert normalize_url(base, "javascript-research/") == (
+        "https://research.google/pubs/javascript-research/"
+    )
+
+
 def test_discovery_keeps_only_allowlisted_anthropic_links():
     html = """
     <a href="/engineering/effective-context-engineering-for-ai-agents#intro">A</a>
@@ -37,6 +54,24 @@ def test_discovery_keeps_only_allowlisted_anthropic_links():
     assert links == [
         "https://www.anthropic.com/engineering/building-effective-agents",
         "https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents",
+    ]
+
+
+def test_google_research_discovery_rejects_malformed_javascript_like_href():
+    html = """
+    <a href="/pubs/automated-remediation-of-compiler-errors/">paper</a>
+    <a href="javascript(0):void">malformed pseudo-link seen in live source</a>
+    """
+
+    links = discover_links(
+        REGISTRY,
+        "google-research-publications",
+        "https://research.google/pubs/",
+        html,
+    )
+
+    assert links == [
+        "https://research.google/pubs/automated-remediation-of-compiler-errors/"
     ]
 
 
