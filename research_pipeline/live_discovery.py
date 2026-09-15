@@ -44,15 +44,28 @@ def _source_by_id(registry: dict, source_id: str) -> dict:
     raise DiscoveryPolicyError(f"Unknown source id: {source_id}")
 
 
-def robots_allows(robots_text: str | None, entrypoint: str) -> bool:
-    """Evaluate one entrypoint against already-fetched robots.txt content."""
+def _robots_parser(robots_text: str | None, entrypoint: str) -> robotparser.RobotFileParser | None:
     if robots_text is None:
-        return True
-
+        return None
     rules = robotparser.RobotFileParser()
     rules.set_url(robots_url_for(entrypoint))
     rules.parse(robots_text.splitlines())
-    return rules.can_fetch(USER_AGENT, entrypoint)
+    return rules
+
+
+def robots_allows(robots_text: str | None, entrypoint: str) -> bool:
+    """Evaluate one entrypoint against already-fetched robots.txt content."""
+    rules = _robots_parser(robots_text, entrypoint)
+    return True if rules is None else rules.can_fetch(USER_AGENT, entrypoint)
+
+
+def robots_crawl_delay(robots_text: str | None, entrypoint: str) -> float | None:
+    """Return a robots.txt Crawl-delay for this agent when one is defined."""
+    rules = _robots_parser(robots_text, entrypoint)
+    if rules is None:
+        return None
+    delay = rules.crawl_delay(USER_AGENT)
+    return float(delay) if delay is not None else None
 
 
 def discover_entrypoint_live(
@@ -76,11 +89,14 @@ def discover_entrypoint_live(
 
     if robots_text is ...:
         robots_text = fetch_robots_txt(source, entrypoint, request_get=request_get)
-        if delay_s > 0:
-            sleep_fn(delay_s)
 
     if not robots_allows(robots_text, entrypoint):
         raise DiscoveryPolicyError(f"robots.txt disallows entrypoint: {entrypoint}")
+
+    requested_delay = robots_crawl_delay(robots_text, entrypoint) or 0.0
+    effective_delay = max(delay_s, requested_delay)
+    if effective_delay > 0:
+        sleep_fn(effective_delay)
 
     fetched = fetch_html(source, entrypoint, request_get=request_get)
     candidates = discover_links(
@@ -110,7 +126,8 @@ def discover_source_live(
     """Discover all configured entrypoints for one source, sequentially.
 
     robots.txt is fetched once per entrypoint host and reused for other entrypoints on
-    that host during the same run.
+    that host during the same run. The effective delay before each discovery-page
+    request is the larger of the CLI/configured delay and robots.txt Crawl-delay.
     """
     source = _source_by_id(registry, source_id)
     if source.get("enabled") is not True or source.get("official") is not True:
@@ -119,14 +136,12 @@ def discover_source_live(
     robots_cache: dict[str, str | None] = {}
     results: list[DiscoveryResult] = []
 
-    for index, entrypoint in enumerate(source.get("entrypoints", [])):
+    for entrypoint in source.get("entrypoints", []):
         robots_url = robots_url_for(entrypoint)
         if robots_url not in robots_cache:
             robots_cache[robots_url] = fetch_robots_txt(
                 source, entrypoint, request_get=request_get
             )
-            if delay_s > 0:
-                sleep_fn(delay_s)
 
         result = discover_entrypoint_live(
             registry,
@@ -134,13 +149,10 @@ def discover_source_live(
             entrypoint,
             request_get=request_get,
             robots_text=robots_cache[robots_url],
-            delay_s=0,
+            delay_s=delay_s,
             sleep_fn=sleep_fn,
         )
         results.append(result)
-
-        if delay_s > 0 and index < len(source.get("entrypoints", [])) - 1:
-            sleep_fn(delay_s)
 
     return results
 
@@ -155,7 +167,10 @@ def main() -> int:
         "--delay",
         type=float,
         default=DEFAULT_DELAY_S,
-        help="polite delay in seconds between requests (default: 1.0)",
+        help=(
+            "minimum polite delay in seconds between requests (default: 1.0; "
+            "robots.txt Crawl-delay can increase it)"
+        ),
     )
     args = parser.parse_args()
 
