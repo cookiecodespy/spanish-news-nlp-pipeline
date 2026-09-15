@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 from dataclasses import asdict, dataclass
+from importlib.metadata import PackageNotFoundError, version as package_version
 from pathlib import Path
 from typing import Callable
 
@@ -31,6 +32,9 @@ from research_pipeline.registry import (
     RegistryError,
     load_registry,
 )
+
+NORMALIZER_PACKAGE = "trafilatura"
+NORMALIZER_VERSION = "2.2.0"
 
 
 @dataclass(frozen=True)
@@ -64,6 +68,32 @@ def _nearest_existing_parent(path: Path) -> Path:
     while not current.exists() and current != current.parent:
         current = current.parent
     return current
+
+
+def _normalizer_check() -> Check:
+    """Verify the parser version that materially determines normalized artifacts."""
+    try:
+        runtime = package_version(NORMALIZER_PACKAGE)
+    except PackageNotFoundError:
+        return Check(
+            "normalizer",
+            "FAIL",
+            f"{NORMALIZER_PACKAGE} is not installed (expected {NORMALIZER_VERSION})",
+        )
+    except Exception as exc:
+        return Check("normalizer", "FAIL", f"could not inspect normalizer version: {exc}")
+
+    if runtime != NORMALIZER_VERSION:
+        return Check(
+            "normalizer",
+            "FAIL",
+            f"{NORMALIZER_PACKAGE} {runtime} installed; expected {NORMALIZER_VERSION}",
+        )
+    return Check(
+        "normalizer",
+        "PASS",
+        f"{NORMALIZER_PACKAGE} {runtime} matches the pinned artifact extractor",
+    )
 
 
 def doctor(
@@ -123,6 +153,8 @@ def doctor(
                 f"{entrypoints} configured entrypoints across enabled sources",
             )
         )
+
+    checks.append(_normalizer_check())
 
     ok = all(check.status == "PASS" for check in checks)
     return {"ok": ok, "checks": [asdict(check) for check in checks]}
