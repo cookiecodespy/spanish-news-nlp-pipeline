@@ -15,7 +15,11 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from research_pipeline.discovery_state import DEFAULT_STATE_PATH, DiscoveryStateError, connect_state
+from research_pipeline.discovery_state import (
+    DEFAULT_STATE_PATH,
+    DiscoveryStateError,
+    connect_state,
+)
 from research_pipeline.normalization import ARTIFACT_SCHEMA_VERSION
 
 
@@ -87,7 +91,10 @@ def _load_verified_artifact(state_path: Path, row: sqlite3.Row) -> dict[str, Any
     extractor = artifact.get("extractor")
     if not isinstance(extractor, dict):
         raise EvidenceError("normalized artifact is missing extractor metadata")
-    if extractor.get("name") != row["extractor_name"] or extractor.get("version") != row["extractor_version"]:
+    if (
+        extractor.get("name") != row["extractor_name"]
+        or extractor.get("version") != row["extractor_version"]
+    ):
         raise EvidenceError(
             "normalized artifact extractor metadata does not match the provenance ledger"
         )
@@ -97,7 +104,8 @@ def _load_verified_artifact(state_path: Path, row: sqlite3.Row) -> dict[str, Any
         raise EvidenceError("normalized artifact has no citation blocks")
     if len(blocks) != int(row["block_count"]):
         raise EvidenceError(
-            f"normalized artifact block count mismatch: ledger {row['block_count']}, artifact {len(blocks)}"
+            f"normalized artifact block count mismatch: ledger {row['block_count']}, "
+            f"artifact {len(blocks)}"
         )
 
     return artifact
@@ -187,6 +195,7 @@ def _document_summary(row: sqlite3.Row) -> dict[str, Any]:
             "name": str(row["extractor_name"]),
             "version": str(row["extractor_version"]),
         },
+        "verified": True,
     }
 
 
@@ -196,9 +205,8 @@ def list_documents(
     source_id: str | None = None,
     requested_url: str | None = None,
     limit: int = 20,
-    verify: bool = True,
 ) -> dict[str, Any]:
-    """List latest successful normalized documents, optionally verifying each artifact."""
+    """List latest successful normalized documents after verifying every artifact."""
     connection = _open_existing_state(state_path)
     try:
         rows = _joined_success_rows(
@@ -210,11 +218,8 @@ def list_documents(
         documents: list[dict[str, Any]] = []
         for row in rows:
             _validate_provenance(row)
-            if verify:
-                _load_verified_artifact(state_path, row)
-            item = _document_summary(row)
-            item["verified"] = bool(verify)
-            documents.append(item)
+            _load_verified_artifact(state_path, row)
+            documents.append(_document_summary(row))
     finally:
         connection.close()
 
@@ -273,7 +278,9 @@ def get_citation(
         raise EvidenceError(f"citation block {block_ref} has no text")
     if not isinstance(kind, str) or not kind:
         raise EvidenceError(f"citation block {block_ref} has no kind")
-    if not isinstance(heading_path, list) or not all(isinstance(item, str) for item in heading_path):
+    if not isinstance(heading_path, list) or not all(
+        isinstance(item, str) for item in heading_path
+    ):
         raise EvidenceError(f"citation block {block_ref} has invalid heading_path")
 
     return {
@@ -313,16 +320,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    list_parser = subparsers.add_parser("list", help="list latest normalized evidence")
+    list_parser = subparsers.add_parser("list", help="list verified normalized evidence")
     list_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
     list_parser.add_argument("--source")
     list_parser.add_argument("--url")
     list_parser.add_argument("--limit", type=int, default=20)
-    list_parser.add_argument(
-        "--no-verify",
-        action="store_true",
-        help="list ledger metadata without reading/verifying artifact bodies",
-    )
 
     cite_parser = subparsers.add_parser("cite", help="resolve one exact citation block")
     cite_parser.add_argument("--state", type=Path, default=DEFAULT_STATE_PATH)
@@ -338,7 +340,6 @@ def main() -> int:
                 source_id=args.source,
                 requested_url=args.url,
                 limit=args.limit,
-                verify=not args.no_verify,
             )
         else:
             payload = get_citation(
