@@ -17,6 +17,15 @@ from urllib import robotparser
 import requests
 
 from research_pipeline.discovery import DiscoveryPolicyError, discover_links
+from research_pipeline.discovery_state import (
+    DEFAULT_STATE_PATH,
+    DiscoveryStateError,
+    RunSummary,
+    connect_state,
+    record_failure,
+    record_success,
+    start_run,
+)
 from research_pipeline.network import (
     USER_AGENT,
     fetch_html,
@@ -44,7 +53,10 @@ def _source_by_id(registry: dict, source_id: str) -> dict:
     raise DiscoveryPolicyError(f"Unknown source id: {source_id}")
 
 
-def _robots_parser(robots_text: str | None, entrypoint: str) -> robotparser.RobotFileParser | None:
+def _robots_parser(
+    robots_text: str | None,
+    entrypoint: str,
+) -> robotparser.RobotFileParser | None:
     if robots_text is None:
         return None
     rules = robotparser.RobotFileParser()
@@ -157,11 +169,65 @@ def discover_source_live(
     return results
 
 
+def discover_source_with_state(
+    registry: dict,
+    source_id: str,
+    connection,
+    *,
+    request_get: Callable = requests.get,
+    delay_s: float = DEFAULT_DELAY_S,
+    sleep_fn: Callable[[float], None] = time.sleep,
+) -> tuple[list[DiscoveryResult], RunSummary]:
+    """Run live discovery and record an honest local ledger entry."""
+    run_id = start_run(connection, source_id)
+    try:
+        results = discover_source_live(
+            registry,
+            source_id,
+            request_get=request_get,
+            delay_s=delay_s,
+            sleep_fn=sleep_fn,
+        )
+        summary = record_success(connection, run_id, results)
+        return results, summary
+    except Exception as exc:
+        try:
+            record_failure(connection, run_id, str(exc))
+        except DiscoveryStateError:
+            # Preserve the original discovery exception. State errors are independently
+            # testable and should not hide the root cause of this run.
+            pass
+        raise
+
+
+def _success_payload(
+    source_id: str,
+    results: list[DiscoveryResult],
+    summary: RunSummary,
+) -> dict:
+    return {
+        "ok": True,
+        "source_id": source_id,
+        "run_id": summary.run_id,
+        "candidate_count": summary.candidate_count,
+        "new_count": summary.new_count,
+        "known_count": summary.known_count,
+        "new_candidates": summary.new_candidates,
+        "entrypoints": [asdict(result) for result in results],
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", required=True, help="registry source id")
     parser.add_argument(
         "--registry", type=Path, default=DEFAULT_REGISTRY_PATH, help="registry JSON path"
+    )
+    parser.add_argument(
+        "--state",
+        type=Path,
+        default=DEFAULT_STATE_PATH,
+        help="local SQLite discovery ledger (default: .state/discovery.sqlite3)",
     )
     parser.add_argument(
         "--delay",
@@ -177,19 +243,25 @@ def main() -> int:
     if args.delay < 0:
         parser.error("--delay must be >= 0")
 
-    registry = load_registry(args.registry)
+    connection = None
     try:
-        results = discover_source_live(registry, args.source, delay_s=args.delay)
+        registry = load_registry(args.registry)
+        connection = connect_state(args.state)
+        results, summary = discover_source_with_state(
+            registry,
+            args.source,
+            connection,
+            delay_s=args.delay,
+        )
+        payload = _success_payload(args.source, results, summary)
     except (DiscoveryPolicyError, RuntimeError) as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False, indent=2))
+        payload = {"ok": False, "source_id": args.source, "error": str(exc)}
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 1
+    finally:
+        if connection is not None:
+            connection.close()
 
-    payload = {
-        "ok": True,
-        "source_id": args.source,
-        "entrypoints": [asdict(result) for result in results],
-        "candidate_count": sum(result.candidate_count for result in results),
-    }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
 
