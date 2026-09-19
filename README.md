@@ -229,6 +229,21 @@ fake model that attempts to self-approve output or inject privileged fields. See
 and semantic truth remain `UNASSESSED`. No current v2 stage automatically turns a model
 proposal into knowledge or doctrine.
 
+### Next: bounded model evaluation and optional Jev decision adapter
+
+Phase 4C is **planned, not implemented**: before calling a real generative model, establish
+human-labeled cases, semantic-support and citation metrics, explicit owner-approved
+provider/budget, and private handling of source documents and model outputs. See
+[`docs/PHASE_4C_EVALUATION.md`](docs/PHASE_4C_EVALUATION.md) for the evaluation gate.
+
+[TypeSafe AI's Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) is
+being considered for a **future, optional relevance/triage decision** over bounded
+research metadata or extracts, potentially reusable by other agent projects through a
+separate client. It does not generate claim text and will not replace the source allowlist,
+robots, evidence checks, human review or the generative Phase 4C model. **Jev is not
+integrated and early-access approval/API availability has not been confirmed.** See
+[`docs/JEV_INTEGRATION.md`](docs/JEV_INTEGRATION.md) for the proposal and constraints.
+
 Declared metadata such as title, author, dates, language or canonical URL is preserved as
 source data. It does not widen the network allowlist or automatically become trusted
 agent guidance.
