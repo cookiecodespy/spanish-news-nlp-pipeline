@@ -56,12 +56,15 @@ Key principles:
 See [`docs/SOURCE_POLICY.md`](docs/SOURCE_POLICY.md) for the trust model and
 [`sources/registry.json`](sources/registry.json) for the initial official-source registry.
 Development is tracked publicly in GitHub issues and small feature branches.
+For the **verified current status and remaining work**, see
+[`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md).
 
 ## V2 current commands
 
 V2 is still under active development. The trust, discovery, local-state, assurance,
-exact-byte ingestion, deterministic normalization, verified citation, immutable grounding
-and provider-neutral claim-extraction contract layers are executable.
+exact-byte ingestion, deterministic normalization, verified citation, immutable grounding,
+provider-neutral claim-extraction contract, and **offline human-review evaluation** layers
+are executable. No generative-model provider or Jev API is integrated yet.
 
 Validate the committed official-source registry entirely offline:
 
@@ -229,12 +232,23 @@ fake model that attempts to self-approve output or inject privileged fields. See
 and semantic truth remain `UNASSESSED`. No current v2 stage automatically turns a model
 proposal into knowledge or doctrine.
 
-### Next: bounded model evaluation and optional Jev decision adapter
+### Phase 4C: offline evaluator complete; real-model pilot pending
 
-Phase 4C is **planned, not implemented**: before calling a real generative model, establish
-human-labeled cases, semantic-support and citation metrics, explicit owner-approved
-provider/budget, and private handling of source documents and model outputs. See
-[`docs/PHASE_4C_EVALUATION.md`](docs/PHASE_4C_EVALUATION.md) for the evaluation gate.
+**Phase 4C-1 is implemented:** a local, human-annotation-driven evaluator checks saved
+provider-format proposals against the existing Phase 4B contract, then reports reviewed
+citation-support judgments, finding coverage, abstention and explicit denominators. It is
+not an automatic truth checker and has **not** produced results for a live model.
+
+```bash
+python -m research_pipeline.claim_evaluation \
+  bundle.json request.json response.json review.json --format json
+```
+
+See [`docs/CLAIM_QUALITY_EVALUATION.md`](docs/CLAIM_QUALITY_EVALUATION.md) for the strict
+review format. **Phase 4C-2 remains proposed:** before calling a real generative model,
+prepare reviewed cases, get explicit owner approval for provider/model and spending cap,
+and keep external article text and model I/O private. The evaluation protocol and release
+gates live in [`docs/PHASE_4C_EVALUATION.md`](docs/PHASE_4C_EVALUATION.md).
 
 [TypeSafe AI's Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) is
 being considered for a **future, optional relevance/triage decision** over bounded
@@ -343,6 +357,13 @@ sources/registry.json       v2 allowlisted official-source registry
 
 Those limitations are preserved rather than hidden. New development is focused on the
 v2 research/knowledge pipeline instead of expanding v1 into a larger classifier project.
+
+## Contributing and security
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR and [SECURITY.md](SECURITY.md)
+for private vulnerability reporting. The [project status](docs/PROJECT_STATUS.md)
+distinguishes merged capabilities, pending model evaluation, and GitHub administrative
+work tracked in [Issue #28](https://github.com/cookiecodespy/spanish-news-nlp-pipeline/issues/28).
 
 ## Author
 
